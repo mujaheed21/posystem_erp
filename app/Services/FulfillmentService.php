@@ -6,6 +6,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use RuntimeException;
 use Throwable;
+use App\Models\OfflineFulfillmentPending;
+use Illuminate\Validation\ValidationException;
+use App\Services\StockService;
+use App\Services\AuditService;
+use App\Models\Warehouse;
 
 class FulfillmentService
 {
@@ -91,14 +96,14 @@ class FulfillmentService
                     'updated_at'   => now(),
                 ]);
 
-                // Decrease stock (mapped to valid ENUM type: 'sale')
+                // Decrease stock (NORMAL SALE FLOW)
                 foreach ($items as $item) {
                     StockService::decrease(
                         $businessId,
                         (int) $token->warehouse_id,
                         (int) $item->product_id,
                         (float) $item->quantity,
-                        'sale', // ✅ VALID ENUM VALUE
+                        'sale',
                         'warehouse_fulfillments',
                         $fulfillmentId,
                         $user?->id
@@ -106,11 +111,53 @@ class FulfillmentService
                 }
             });
         } catch (RuntimeException $e) {
-            // 🔴 REQUIRED: rethrow business exceptions so controller/tests can react
             throw $e;
         } catch (Throwable $e) {
-            // Allow unexpected errors to surface (500)
             throw $e;
         }
+    }
+
+    /**
+     * Fulfill an approved offline fulfillment pending record.
+     *
+     * @throws ValidationException
+     */
+    public function fulfillOffline(OfflineFulfillmentPending $pending): void
+{
+        $payload = $pending->payload;
+
+        if (!isset($payload['items']) || empty($payload['items'])) {
+            throw ValidationException::withMessages([
+                'payload' => 'Offline payload missing items.',
+            ]);
+        }
+
+        $warehouse = Warehouse::query()
+            ->select('id', 'business_id')
+            ->findOrFail($pending->warehouse_id);
+
+        foreach ($payload['items'] as $item) {
+            StockService::decrease(
+                (int) $warehouse->business_id,   // ✅ FIX
+                (int) $warehouse->id,
+                (int) $item['product_id'],
+                (float) $item['quantity'],
+                'sale',
+                'offline_fulfillment_pendings',
+                $pending->id,
+                Auth::id()
+            );
+        }
+
+        AuditService::log(
+            action: 'offline_fulfillment_reconciled',
+            module: 'offline_fulfillment',
+            auditableType: OfflineFulfillmentPending::class,
+            auditableId: $pending->id,
+            metadata: [
+                'warehouse_id' => $warehouse->id,
+                'business_id'  => $warehouse->business_id,
+            ]
+        );
     }
 }

@@ -10,6 +10,7 @@ use Spatie\Permission\Models\Permission;
 use Tests\Helpers\FulfillmentTestHelper;
 use App\Services\FulfillmentTokenService;
 use PHPUnit\Framework\Attributes\Test;
+use App\Models\WarehouseStock;
 
 class QrScanTest extends TestCase
 {
@@ -78,13 +79,18 @@ class QrScanTest extends TestCase
             ->where('sale_id', $saleId)
             ->first();
 
-        DB::table('warehouse_stock')->insert([
-            'warehouse_id' => $user->warehouse_id,
-            'product_id'   => $saleItem->product_id,
-            'quantity'     => 100,
-            'created_at'   => now(),
-            'updated_at'   => now(),
-        ]);
+        WarehouseStock::updateOrCreate(
+            [
+                'warehouse_id' => $user->warehouse_id,
+                'product_id'   => $saleItem->product_id,
+            ],
+            [
+                'quantity' => 100,
+            ]
+        );
+
+
+
 
         $this->postJson('/api/fulfillments/scan', [
             'token' => $token,
@@ -114,13 +120,6 @@ class QrScanTest extends TestCase
             ->where('sale_id', $saleId)
             ->first();
 
-        DB::table('warehouse_stock')->insert([
-            'warehouse_id' => $user->warehouse_id,
-            'product_id'   => $saleItem->product_id,
-            'quantity'     => 100,
-            'created_at'   => now(),
-            'updated_at'   => now(),
-        ]);
 
         // First scan → approved
         $this->postJson('/api/fulfillments/scan', [
