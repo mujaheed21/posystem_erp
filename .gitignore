@@ -1,0 +1,10 @@
+/vendor
+/node_modules
+/.env
+/storage/*.key
+/storage/keys/*
+/storage/logs/*
+/storage/framework/*
+/database/database.sqlite
+/.idea
+/.vscode
