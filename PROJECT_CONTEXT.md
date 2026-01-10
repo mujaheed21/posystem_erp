@@ -1,331 +1,266 @@
-# PROJECT PROGRESS REPORT
+# PROJECT CONTEXT
+
+## Project Name
 
 **Secure Multi-Location POS & Warehouse Fulfillment System**
 
 ---
 
-## 1. FOUNDATIONAL SYSTEM SETUP
+## Purpose
 
-### 1.1 Backend Environment
+This project is a **security-first, transaction-driven POS and warehouse fulfillment platform** designed to guarantee:
 
-* Laravel 11 installed and stabilized
-* PHP 8.3+ runtime verified
-* MySQL configured as the primary database (no SQLite dependency)
-* Composer and Node environments validated
-* Laravel 11 bootstrap and middleware registration aligned correctly
+* Correct stock movement
+* Explicit authorization
+* Single-use fulfillment
+* Deterministic state transitions
+* Complete auditability
 
-**Outcome:**
-A modern, production-grade backend foundation capable of supporting a secure, multi-tenant SaaS ERP system.
+The system is intentionally engineered to **prevent by design**:
 
----
+* Double fulfillment
+* Stock desynchronization
+* Unauthorized warehouse actions
+* Silent or unaudited inventory changes
+* Nondeterministic behavior that breaks tests
 
-## 2. DATABASE & DATA MODELING (CORE ACHIEVEMENT)
-
-### 2.1 Core Business Structure
-
-Implemented and validated:
-
-* businesses
-* business_locations
-* warehouses
-* business_location_warehouse (access mapping)
-* users linked to businesses and locations
-
-**Result:**
-True multi-tenant isolation with location-aware and warehouse-aware operations.
+This is not a CRUD POS.
+It is a **fulfillment engine with strict invariants**.
 
 ---
 
-### 2.2 Inventory & Stock Engine (CRITICAL)
+## Core Invariants (Non-Negotiable)
 
-Implemented:
+### 1. Stock Is a Ledger, Not a Counter
 
-* products
-* warehouse_stock
-* stock_movements
+* Stock **must never** be mutated directly.
+* All stock changes go through `StockService`.
+* Every change produces a `stock_movements` record.
+* Idempotency is enforced at the service level.
 
-Capabilities achieved:
+### 2. Fulfillment Is Single-Use and Transactional
 
-* Per-warehouse inventory tracking
-* Atomic stock increment/decrement
-* Auditable stock movement history
-* Strong foundation for transfers, adjustments, and reconciliation
+* QR / online fulfillment tokens:
 
-**Status:**
-Fully operational and enforced by services and tests.
+  * Are single-use
+  * Are row-locked (`SELECT … FOR UPDATE`)
+  * Become invalid immediately after use or expiry
+* Offline fulfillments:
 
----
+  * Require explicit approval
+  * Can be reconciled once and only once
+  * Cannot be replayed or retried silently
 
-### 2.3 Sales & Transactions
+### 3. Authorization Is Explicit
 
-Implemented:
+* `warehouse.fulfill` is required for any fulfillment action
+* `offline.fulfillment.approve` is required for offline approval
+* No implicit role or fallback authorization exists
 
-* sales
-* sale_items
-* purchases
-* purchase_items
-* stock_transfers
-* stock_transfer_items
+### 4. Lifecycle State Is Explicit and Singular
 
-Key architectural decisions:
+* **`state` is the only persisted lifecycle field**
+* `status` is reserved strictly for API response semantics
+* Lifecycle transitions are forward-only and terminal when completed
 
-* Sales are tied to business locations
-* Warehouses are decoupled from POS
-* Fulfillment is an explicit, verifiable action
-* Referential integrity enforced with foreign keys
+### 5. Audit Is Mandatory for Lifecycle Events
 
-**Status:**
-Sales and fulfillment are cleanly separated and structurally sound.
+* Every lifecycle transition that finalizes fulfillment is audited
+* No reconciliation or stock mutation may occur without an audit trail
 
 ---
 
-## 3. ACCESS CONTROL & SECURITY ARCHITECTURE
+## Domain Language (Strict)
 
-### 3.1 Authentication
+| Term           | Meaning                                  |
+| -------------- | ---------------------------------------- |
+| `state`        | Persisted lifecycle state (domain truth) |
+| `status`       | API / transport response indicator only  |
+| Fulfillment    | A controlled, single-use stock operation |
+| Reconciliation | Finalization of a fulfillment lifecycle  |
 
-* Laravel Sanctum fully integrated
-* Token-based authentication validated
-* Stateless API access confirmed via feature tests
-
----
-
-### 3.2 Authorization (RBAC)
-
-* Spatie Laravel Permission integrated
-* Role- and permission-based access enforced
-* Permissions mapped to system capabilities, not UI features
-
-Examples:
-
-* sale.create
-* warehouse.fulfill
-
-**Result:**
-Enterprise-grade RBAC with future-proof module control.
+Any deviation from this vocabulary is considered a defect.
 
 ---
 
-### 3.3 Warehouse Access Enforcement
+## Implemented Fulfillment Flows
 
-* Custom middleware: `EnsureWarehouseAccess`
+### 1. QR / Online Fulfillment
+
+#### Flow
+
+1. Authenticated warehouse user scans fulfillment token
+2. Token row is locked (`SELECT … FOR UPDATE`)
+3. Token validity is verified:
+
+   * Exists
+   * Not used
+   * Not expired
+4. Sale items are reloaded and hashed
+5. Hash is compared to token payload
+6. Token is marked as used **before** stock movement
+7. Fulfillment record is created
+8. Fulfillment state transitions:
+
+   * `pending → approved`
+   * `approved → released`
+9. Stock is decreased via `StockService` (idempotent)
+10. Fulfillment state transitions:
+
+    * `released → reconciled`
+11. Any failure after creation marks fulfillment as conflicted
+
+#### Guarantees
+
+* Token reuse is impossible
+* Parallel scans cannot succeed
+* Modified sale items invalidate the token
+* Stock is deducted exactly once
+* Final state is deterministic and auditable
+
+---
+
+### 2. Offline Fulfillment Reconciliation
+
+#### Flow
+
+1. Offline payload is created externally
+2. Payload is stored as `OfflineFulfillmentPending`
+3. Supervisor approves or rejects the payload
+4. Approved payload is reconciled:
+
+   * Payload structure is validated
+   * Stock is decreased per item via `StockService`
+   * Lifecycle audit is written
+   * State is set to `reconciled`
+
+#### Rejection Conditions
+
+* Payload not approved
+* Already reconciled
+* Already rejected
+* Missing or empty payload items
+
+---
+
+## Offline Fulfillment Lifecycle Authority
+
+### State Machine
+
+* `OfflineFulfillmentStateMachine` is the **sole authority** for:
+
+  * State transitions
+  * Transition validation
+  * Lifecycle audit logging
+
+#### Allowed Transitions
+
+* `pending → approved`
+* `pending → rejected`
+* `approved → reconciled`
+
+`reconciled` and `rejected` are terminal.
+
+No service, controller, or job may bypass this machine.
+
+---
+
+## Service Responsibilities (Hard Boundaries)
+
+### `StockService`
+
+* Central authority for stock changes
 * Enforces:
 
-  * Business location → warehouse mapping
-  * Active access flags
-* Explicit bypass for QR scan route (by design)
+  * Valid movement types
+  * Idempotency
+  * Warehouse-product uniqueness
+* No caller may mutate stock directly
 
-**Outcome:**
-No user can fulfill goods from an unauthorized warehouse.
+### `FulfillmentService`
 
----
+* Handles QR / online fulfillment flow
+* Executes **side effects only**
+* Does not decide lifecycle truth
 
-## 4. ONLINE FULFILLMENT FLOW (MAJOR MILESTONE)
+### `OfflineReconciliationService`
 
-### 4.1 Fulfillment Tokens
+* Coordinates approval and reconciliation
+* Enforces:
 
-Implemented:
-
-* fulfillment_tokens table
-* FulfillmentTokenService
-
-Security properties enforced:
-
-* Tokens are hashed at rest
-* Tokens are:
-
-  * Single-use
-  * Time-limited
-  * Bound to sale, warehouse, and items
+  * Single reconciliation
+  * Transactional integrity
+* Delegates lifecycle decisions to the state machine
 
 ---
 
-### 4.2 QR-Based Fulfillment
+## Audit Architecture
 
-* QR-based fulfillment workflow implemented
-* `/api/fulfillments/scan` endpoint stabilized
-* Fulfillment logic centralized in `FulfillmentService`
-* Stock decrement enforced atomically
-
----
-
-### 4.3 Anti-Fraud Guarantees (PROVEN BY TESTS)
-
-Verified and enforced:
-
-* No token reuse
-* No expired token acceptance
-* No silent stock depletion
-* No warehouse mismatch
-* No bypass of authorization or authentication
-
-**Status:**
-All guarantees enforced and regression-tested.
+* Lifecycle audit events are emitted **only** by state machines
+* Action: `offline_fulfillment_reconciled`
+* Exactly **one audit log per lifecycle**
+* Audit metadata (e.g. `warehouse_id`, `business_id`) is passed into the state machine by callers
+* Duplicate lifecycle audits are forbidden
 
 ---
 
-## 5. OFFLINE FULFILLMENT (ADVANCED, CONTROLLED)
+## Model Guards
 
-### 5.1 Cryptographic Offline QR Design
-
-Offline QR payload finalized and frozen:
-
-* Sale ID
-* Warehouse ID
-* Items hash
-* Expiry timestamp
-* Nonce
-* Key ID (kid)
-* Digital signature
+* `OfflineFulfillmentPending` enforces a guard preventing mutation of `status`
+* Guard triggers only when `status` is dirty (`isDirty('status')`)
+* This prevents schema drift while avoiding false positives
 
 ---
 
-### 5.2 Cryptography Implementation
+## Testing Philosophy
 
-* Libsodium (Ed25519) correctly implemented
+This system is **test-defined**, not test-decorated.
 
-* Binary-safe key handling enforced
+Feature tests define invariants:
 
-* Key storage structure validated:
+* `QrScanTest`
+* `OfflineReconciliationTest`
 
-  * Secret key: 64 bytes (binary)
-  * Public key: 32 bytes (binary)
+Tests are treated as **architectural constraints**, not regression checks.
 
-* No text encoding misuse
+Any change that:
 
----
+* Breaks determinism
+* Reintroduces lifecycle ambiguity
+* Allows duplicate side effects
 
-### 5.3 Offline Scan Endpoint
-
-Implemented:
-
-* `/api/fulfillments/offline-scan`
-* Signature verification via `OfflineQrVerifier`
-* Expiry and warehouse validation enforced
-* **No irreversible fulfillment occurs offline**
+must fail tests immediately.
 
 ---
 
-### 5.4 Offline Pending Storage
+## Current Status
 
-Implemented:
-
-* offline_fulfillment_pendings table
-
-Stores:
-
-* Signed payload
-* Sale reference
-* Warehouse reference
-* Reconciliation status
-
-**Outcome:**
-Offline fulfillment is controlled, auditable, and reversible.
+* ✔ All feature tests passing
+* ✔ Lifecycle determinism enforced
+* ✔ Audit duplication eliminated
+* ✔ Stock engine stable
+* ✔ Authorization boundaries respected
 
 ---
 
-## 6. AUDIT & NON-REPUDIATION
+## Design Position
 
-### 6.1 Audit Logging
+This system is intentionally **defensive by default**.
 
-* audit_logs table implemented
-* Audit hooks integrated into:
+It is designed to operate safely across:
 
-  * Fulfillment approval
-  * Offline pending creation
+* Multiple warehouses
+* Offline and untrusted environments
+* Concurrent requests
+* Partial failures
 
-**Principle enforced:**
-Every irreversible action leaves an evidence trail.
-
----
-
-## 7. TESTING & VERIFICATION (SYSTEM HARDENING)
-
-### 7.1 Feature Tests
-
-Comprehensive feature tests implemented for:
-
-* Authentication enforcement
-* Permission enforcement
-* Warehouse access control
-* Valid fulfillment approval
-* Token reuse rejection
-* Token expiry rejection
+Correctness is prioritized over convenience.
+Safety is prioritized over speed.
 
 ---
 
-### 7.2 Test Infrastructure Improvements
+### Final Note
 
-* Shared setup logic extracted into `FulfillmentTestHelper`
-* Reduced duplication
-* Improved clarity and maintainability
+This document is **authoritative**.
 
-**Current Test Status:**
-
-* All tests passing
-* All security invariants enforced
-* Tests act as non-negotiable regression guards
-
----
-
-## 8. ARCHITECTURAL DISCIPLINE
-
-### 8.1 Service-Oriented Core
-
-Business logic centralized in services:
-
-* SaleService
-* FulfillmentService
-* PurchaseService
-* StockService
-* AuditService
-* OfflineQrSigner
-* OfflineQrVerifier
-
-**Outcome:**
-Controllers are thin, logic is testable, and growth will not cause architectural decay.
-
----
-
-## 9. OPERATIONAL ISSUES RESOLVED
-
-Real-world issues correctly identified and fixed:
-
-* Laravel 11 routing and middleware changes
-* Middleware ordering pitfalls
-* MySQL strict mode constraints
-* Binary cryptographic key handling
-* Token hashing vs plaintext expectations
-* Stock integrity failures under test conditions
-
-These resolutions significantly reduce future operational and security risk.
-
----
-
-## 10. CURRENT SYSTEM STATUS
-
-### What Is Complete
-
-* Core multi-tenant data model
-* Inventory and stock engine
-* Online fulfillment (QR-based)
-* Offline QR fallback (pre-reconciliation)
-* Security and access control model
-* Audit logging
-* Automated test coverage with full pass
-
----
-
-### What Is Pending (Next Phases)
-
-* Supervisor override workflow
-* Offline reconciliation engine
-* Purchase receiving (GRN) flow
-* POS and warehouse frontend UI
-* Reporting and analytics dashboards
-* Formal security documentation and SOPs
-
----
-
-**Status Summary:**
-The system has crossed from *prototype* into a **validated, secure core platform**.
-Future work can now proceed safely without destabilizing existing guarantees.
+Any future change that contradicts these rules is a **design regression**, not a feature.

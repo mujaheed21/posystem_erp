@@ -1,4 +1,4 @@
-app
+├── app
 │   ├── Http
 │   │   ├── Controllers
 │   │   │   ├── Api
@@ -7,13 +7,15 @@ app
 │   │       └── EnsureWarehouseAccess.php
 │   ├── Models
 │   │   ├── Business.php
-│   │   ├── BusinessModule.php
 │   │   ├── Module.php
+│   │   ├── OfflineFulfillmentPending.php
 │   │   ├── Permission.php
+│   │   ├── Product.php
 │   │   ├── Role.php
 │   │   ├── StockMovement.php
 │   │   ├── User.php
-│   │   └── Warehouse.php
+│   │   ├── Warehouse.php
+│   │   └── WarehouseStock.php
 │   ├── Providers
 │   │   └── AppServiceProvider.php
 │   └── Services
@@ -22,6 +24,7 @@ app
 │       ├── FulfillmentTokenService.php
 │       ├── OfflineQrSigner.php
 │       ├── OfflineQrVerifier.php
+│       ├── OfflineReconciliationService.php
 │       ├── PurchaseReceiptService.php
 │       ├── PurchaseService.php
 │       ├── SaleService.php
@@ -54,7 +57,9 @@ app
 │   ├── database.sqlite
 │   ├── factories
 │   │   ├── BusinessFactory.php
-│   │   └── UserFactory.php
+│   │   ├── ProductFactory.php
+│   │   ├── UserFactory.php
+│   │   └── WarehouseFactory.php
 │   ├── migrations
 │   │   ├── 0001_01_01_000000_create_users_table.php
 │   │   ├── 0001_01_01_000001_create_cache_table.php
@@ -88,7 +93,8 @@ app
 │   │   ├── 2026_01_04_230322_harden_fulfillment_tokens_table.php
 │   │   ├── 2026_01_05_212204_drop_plaintext_token_from_fulfillment_tokens.php
 │   │   ├── 2026_01_06_184310_create_purchase_receipts_table.php
-│   │   └── 2026_01_06_184826_create_purchase_receipt_items_table.php
+│   │   ├── 2026_01_06_184826_create_purchase_receipt_items_table.php
+│   │   └── 2026_01_08_021819_create_offline_fulfillment_pendings_table.php
 │   ├── schema
 │   │   └── mysql-schema.sql
 │   └── seeders
@@ -149,6 +155,7 @@ app
 │   ├── Feature
 │   │   ├── ExampleTest.php
 │   │   └── Fulfillment
+│   │       ├── OfflineReconciliationTest.php
 │   │       └── QrScanTest.php
 │   ├── Helpers
 │   │   └── FulfillmentTestHelper.php

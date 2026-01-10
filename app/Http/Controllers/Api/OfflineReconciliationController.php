@@ -15,9 +15,12 @@ class OfflineReconciliationController extends Controller
 
     public function approve(OfflineFulfillmentPending $pending)
     {
-        $this->service->approve($pending->id, auth()->user());
+        $this->service->approve(
+            $pending->id,
+            auth()->user()
+        );
 
-        return response()->json(['status' => 'approved']);
+        return response()->json(['state' => 'approved']);
     }
 
     public function reject(Request $request, OfflineFulfillmentPending $pending)
@@ -28,17 +31,18 @@ class OfflineReconciliationController extends Controller
 
         $this->service->reject(
             $pending->id,
-            auth()->user(),
-            $request->reason
+            $request->reason,
+            auth()->user()
         );
 
-        return response()->json(['status' => 'rejected']);
+        return response()->json(['state' => 'rejected']);
     }
 
     public function reconcile(OfflineFulfillmentPending $pending)
     {
-        $this->service->reconcile($pending->id, auth()->user());
+        $pending->refresh();
+        $this->service->reconcile($pending->id);
 
-        return response()->json(['status' => 'fulfilled']);
+        return response()->json(['state' => 'reconciled']);
     }
 }

@@ -12,7 +12,7 @@ class OfflineFulfillmentPending extends Model
         'sale_id',
         'warehouse_id',
         'payload',
-        'status',
+        'state',
         'approved_by',
         'approved_at',
         'fulfilled_at',
@@ -20,8 +20,22 @@ class OfflineFulfillmentPending extends Model
     ];
 
     protected $casts = [
-        'payload' => 'array',
-        'approved_at' => 'datetime',
+        'payload'      => 'array',
+        'approved_at'  => 'datetime',
         'fulfilled_at' => 'datetime',
     ];
+
+    /**
+     * Guard against accidental use of `status`
+     */
+    protected static function booted()
+    {
+        static::saving(function ($model) {
+            if ($model->isDirty('status')) {
+                throw new \RuntimeException(
+                    'OfflineFulfillmentPending must not use `status`; use `state`.'
+                );
+            }
+        });
+    }
 }

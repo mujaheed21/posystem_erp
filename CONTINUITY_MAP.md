@@ -1,248 +1,327 @@
-Below is the authoritative continuity map for this project.
+# Continuity Map
 
-If these classes/files are referenced, named, and wired correctly, the system will not break as it grows.
+**Secure Multi-Location POS & Warehouse Fulfillment System**
 
-This is written as a lead engineer checklist, not a tutorial.
+This document defines the **authoritative continuity contract** between models, services, database schema, and tests.
+Any future change must preserve these invariants unless explicitly refactored across all layers.
+
+---
+## 1. Core Domain Invariants (Non-Negotiable)
+
+### 1.1 Business
+
+* A **Business** is the root ownership entity.
+* All warehouses, products, sales, and users belong to **exactly one business**.
+* `business_id` is **mandatory** everywhere it appears.
 
 ---
 
-## 1. CONFIGURATION & ENV (FOUNDATIONAL)
+### 1.2 Warehouse
 
-These must never drift.
+* A **Warehouse** belongs to one Business.
+* Warehouses are the **only stock-holding entities**.
+* Fulfillment always reduces stock **from a warehouse**, never directly from a business.
 
-.env
+**Key fields**
 
-• DB_*
-• OFFLINE_QR_ACTIVE_KID
-• SANCTUM_STATEFUL_DOMAINS (if frontend added)
-
----
-
-config/offline_qr.php
-
-• Must exist
-• Must expose active_kid
-
-Breakage risk:
-If OFFLINE_QR_ACTIVE_KID mismatches key files → QR signing fails silently.
+* `id`
+* `business_id`
 
 ---
 
-## 2. CRYPTOGRAPHY (CRITICAL, HIGH-RISK)
+### 1.3 User
 
-Files that must stay consistent
+* A **User** belongs to a Business.
+* A user may act in the context of **one warehouse at a time** during fulfillment.
+* Warehouse context is **runtime-bound**, not permanently relational.
 
-• app/Services/OfflineQrSigner.php
-• app/Services/OfflineQrVerifier.php
-• storage/keys/{kid} (64 bytes, binary)
-• storage/keys/{kid}.pub (32 bytes, binary)
+**Authorization**
 
-Hard rules
-
-• ❌ Never regenerate keys without rotation logic
-• ❌ Never change payload canonicalization order
-• ❌ Never treat keys as text
-
-Breakage risk:
-Any change here invalidates all offline QR codes.
+* Fulfillment requires `warehouse.fulfill` permission.
+* Authentication is enforced before any fulfillment logic.
 
 ---
 
-## 3. FULFILLMENT CORE (BUSINESS-CRITICAL — COMPLETED)
+## 2. Sales & Fulfillment Continuity
 
-Online fulfillment (stable)
+### 2.1 Sale
 
-• app/Http/Controllers/Api/FulfillmentController.php
-• app/Services/FulfillmentService.php
-• app/Services/FulfillmentTokenService.php
-• app/Models/FulfillmentToken.php
+A **Sale** represents a completed POS transaction awaiting warehouse fulfillment.
 
-Guarantees enforced
+**Mandatory fields**
 
-• Single-use tokens
-• Token expiry
-• Sale item hash integrity
-• Warehouse-bound fulfillment
-• Row-level locking
-• Stock decrease via StockService only
+* `business_id`
+* `business_location_id` *(logical grouping only; no model dependency)*
+* `warehouse_id`
+* `sale_number`
+* `created_by`
 
-Offline fulfillment (prepared, not expanded)
+**Invariant**
 
-• app/Http/Controllers/Api/OfflineFulfillmentController.php
-• offline_fulfillment_pendings table
-• OfflineQrVerifier
-
-Breakage risk:
-Mixing offline and online logic → double fulfillment or stock corruption.
+> A sale **must be fully self-describing** without inferred defaults.
 
 ---
 
-## 4. AUTH & ACCESS CONTROL (SYSTEM INTEGRITY — STABLE)
+### 2.2 Sale Items
 
-Auth model
+Each sale contains one or more immutable sale items.
 
-• app/Models/User.php
-• Must use:
-• HasApiTokens
-• HasRoles
+**Mandatory fields**
 
-• Sanctum middleware must remain enabled
+* `sale_id`
+* `product_id`
+* `quantity`
+* `unit_price`
+* `total_price`
 
-Permissions (Spatie)
+**Invariant**
 
-• Permissions referenced in routes must exist
-• sale.create
-• warehouse.fulfill
-
-Middleware
-
-• permission:*
-
-Custom middleware
-
-• app/Http/Middleware/EnsureWarehouseAccess.php
-• Registered in bootstrap/app.php
-
-Special rule
-
-• QR fulfillment route bypasses warehouse access middleware internally
-
-Breakage risk:
-Changing middleware behavior breaks QR fulfillment tests.
+> Sale items are the **source of truth** for fulfillment hashing.
 
 ---
 
-## 5. ROUTING (FRAGILE IF TOUCHED CARELESSLY)
+### 2.3 Fulfillment Token
 
-Routes that must remain stable
+* Tokens are **single-use**
+* Tokens are **hash-verified**
+* Tokens are **time-bound**
+* Tokens are **sale-bound**
 
-• /api/sales
-• /api/fulfillments/scan
-• /api/fulfillments/offline-scan
+**Failure modes**
 
-Files
+* invalid
+* expired
+* reused
+* tampered sale items
 
-• routes/web.php (Laravel 11)
-
-Middleware ordering (do not reorder)
-
-1. auth:sanctum
-2. permission:*
-3. warehouse.access
-4. throttle
-
-Breakage risk:
-Wrong order → valid users blocked or unauthorized access allowed.
+All failures must be **explicit and deterministic**.
 
 ---
 
-## 6. DATABASE SCHEMA (STRUCTURAL DEPENDENCIES — VERIFIED)
+## 3. Stock Engine Continuity
 
-Tables that must not lose columns
+### 3.1 Warehouse Stock
 
-• sales
-• sale_number
-• warehouse_id
-• business_location_id
+Represents current available stock.
 
-• sale_items
-• fulfillment_tokens
-• offline_fulfillment_pendings
-• warehouse_stock
-• stock_movements
-• warehouse_fulfillments
-• audit_logs
+**Unique constraint**
 
-Foreign keys that must remain
+```
+(warehouse_id, product_id)
+```
 
-• sale_items.product_id → products.id
-• sales.warehouse_id → warehouses.id
-• warehouse_stock.warehouse_id → warehouses.id
+**Invariant**
 
-Breakage risk:
-Removing “unused” columns breaks fulfillment and tests.
+> Stock rows are **never duplicated** — only updated.
 
 ---
 
-## 7. STOCK ENGINE (AUTHORITATIVE — COMPLETED)
+### 3.2 Stock Movement
 
-Files
+Every stock change **must** generate a movement record.
 
-• app/Services/StockService.php
+**Mandatory fields**
 
-Rules enforced
+* `business_id`
+* `warehouse_id`
+* `product_id`
+* `type` (ENUM)
+* `quantity` (signed)
+* `reference_type`
+* `reference_id`
+* `created_by`
 
-• Stock increase vs decrease strictly separated
-• No negative stock allowed
-• Row locking on stock mutation
-• All movements journaled
+**Allowed `type` ENUM values**
 
-Breakage risk:
-Bypassing StockService corrupts inventory state.
+* `sale`
+* `offline_reconciliation`
 
----
+**Invariant**
 
-## 8. TEST INFRASTRUCTURE (GUARD RAILS — GREEN)
-
-Core test files
-
-• tests/Feature/Fulfillment/QrScanTest.php
-• tests/Helpers/FulfillmentTestHelper.php
-
-Status
-
-• All tests passing
-• Tests encode security + business invariants
-
-Breakage risk:
-Changing behavior without updating tests creates false confidence.
+> Stock cannot change without an auditable movement.
 
 ---
 
-## 9. AUDIT & NON-REPUDIATION (LEGAL DEFENSIBILITY)
+## 4. Offline Fulfillment Continuity
 
-Must remain referenced
+### 4.1 OfflineFulfillmentPending
 
-• audit_logs table
+Represents fulfillment performed **without live validation**, pending reconciliation.
 
-Audit writes in
+**States**
 
-• Fulfillment approval
-• Stock decrease
-• Offline pending creation
-• Future reconciliation
+* `pending`
+* `approved`
+* `reconciled`
+* `rejected`
 
-Breakage risk:
-Removing audit destroys traceability and legal defensibility.
+**Invariant**
 
----
-
-## 10. FILES YOU SHOULD NEVER “CLEAN UP” BLINDLY
-
-❌ bootstrap/app.php (middleware registration)
-❌ config/offline_qr.php
-❌ FulfillmentTokenService
-❌ FulfillmentService
-❌ StockService
-❌ EnsureWarehouseAccess
-❌ OfflineQrSigner / Verifier
-
-These are structural load-bearing walls.
+> Reconciliation is **one-time and irreversible**.
 
 ---
 
-## 11. CURRENT SAFE EXPANSION ZONE
+### 4.2 Offline Reconciliation
 
-Next modules must mirror fulfillment patterns:
+* Requires **approval**
+* Must be **idempotent**
+* Must:
 
-• Purchase Order
-• Purchase Receipt (Goods Receiving)
-• Stock Increase via StockService
-
-Any deviation must be justified.
+  * Decrease stock
+  * Write stock movements
+  * Write audit log
+  * Mark record reconciled
 
 ---
 
-## 12. SINGLE SENTENCE RULE (KEEP THIS)
+## 5. Audit Continuity
 
-If a file enforces identity, authorization, cryptography, stock mutation, or irreversibility — it is continuity-critical.
+### 5.1 Audit Log
+
+All sensitive actions must emit an audit entry.
+
+**Required fields**
+
+* `action`
+* `user_id`
+* `auditable_type`
+* `auditable_id`
+* `metadata`
+
+**Key Actions**
+
+* `offline_fulfillment_reconciled`
+* `warehouse_fulfillment_verified`
+
+---
+
+## 6. Test Continuity Rules
+
+### 6.1 Test Helpers
+
+* Tests must **explicitly seed all required DB fields**
+* No test may rely on:
+
+  * DB defaults
+  * Hidden migrations
+  * Phantom models (e.g. `BusinessLocation`)
+
+---
+
+### 6.2 Feature Tests
+
+Each feature test must validate:
+
+* Authentication
+* Authorization
+* Business scoping
+* Idempotency
+* Audit trail
+
+**If a test passes without asserting these, it is incomplete.**
+
+---
+
+## 7. Forbidden Assumptions (Do Not Re-Introduce)
+
+❌ Implicit business location models
+❌ Nullable foreign keys for core flows
+❌ Silent enum coercion
+❌ Stock mutation without movement
+❌ Reusable fulfillment tokens
+
+---
+
+## 8. Change Protocol
+
+Any change that touches:
+
+* sales
+* fulfillment
+* stock
+* reconciliation
+
+**Must update**
+
+1. Service logic
+2. Tests
+3. This continuity map
+
+Failure to do so is a **breaking change**.
+
+---
+## 9. Fulfillment State Machine Continuity
+
+**Canonical States:**
+
+  * pending → approved → released → reconciled
+  * conflicted (terminal)
+
+**State Rules:**
+•	No backward transitions
+•	No skipped transitions
+•	reconciled and conflicted are terminal
+•	All state changes occur inside a database transaction
+•	State transitions are the only path to finalization
+
+**Database Guards:**
+•	warehouse_fulfillments.sale_id is UNIQUE
+•	warehouse_fulfillments.version enforces optimistic locking
+•	Fulfillment rows are locked during transitions
+•	Fulfillment tokens are locked during verification
+
+**Stock Continuity:**
+•	Stock movement is scoped to:
+•	reference_type = sales
+•	reference_id   = sale_id
+•	(reference_type, reference_id, product_id) is UNIQUE
+•	Duplicate stock deductions are rejected at DB level
+
+**Guarantees:**
+•	Double fulfillment is structurally impossible
+•	Concurrent scans resolve safely without race conditions
+•	Retries and job replays are idempotent
+•	Stock cannot mutate without a final fulfillment state
+•	Conflicted executions are detectable and reviewable
+
+**Invariant:**
+Fulfillment is atomic, final, and auditable.
+No stock change may occur outside a reconciled fulfillment
+
+
+
+
+
+**Status:**
+✅ All current feature and unit tests passing
+✅ Continuity validated end-to-end
+
+
+
+4️⃣ Canonical rule (this ends the inconsistency)
+From now on, apply this non-negotiable rule:
+✅ Use state when ALL are true:
+Finite set of allowed values
+Explicit allowed transitions
+Terminal states exist
+Concurrency matters
+Idempotency matters
+Reconciliation / approval involved
+
+Examples
+offline_fulfillment_pendings
+warehouse_fulfillments
+inventory_adjustments (future)
+returns_workflows (future)
+
+✅ Use status when ANY are true:
+Descriptive / reporting-oriented
+Linear progression
+No strict transition enforcement
+No concurrency locks required
+
+Examples
+sales
+purchases
+purchase_receipts
+stock_transfers

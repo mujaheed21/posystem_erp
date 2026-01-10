@@ -9,15 +9,15 @@ use Throwable;
 use App\Models\OfflineFulfillmentPending;
 use Illuminate\Validation\ValidationException;
 use App\Services\StockService;
-use App\Services\AuditService;
 use App\Models\Warehouse;
+use App\Services\FulfillmentStateMachine;
+use App\Services\OfflineFulfillmentStateMachine;
+use App\Models\WarehouseFulfillment;
 
 class FulfillmentService
 {
     /**
      * Fulfill a sale using a single-use fulfillment token.
-     *
-     * @throws RuntimeException
      */
     public static function fulfill(string $plainToken): void
     {
@@ -27,7 +27,6 @@ class FulfillmentService
                 $user = Auth::user();
                 $tokenHash = hash('sha256', $plainToken);
 
-                // Lock token row to guarantee single-use
                 $token = DB::table('fulfillment_tokens')
                     ->where('token_hash', $tokenHash)
                     ->lockForUpdate()
@@ -52,7 +51,6 @@ class FulfillmentService
 
                 $businessId = (int) $sale->business_id;
 
-                // Load sale items deterministically
                 $items = DB::table('sale_items')
                     ->where('sale_id', $token->sale_id)
                     ->orderBy('product_id', 'asc')
@@ -62,7 +60,6 @@ class FulfillmentService
                     throw new RuntimeException('empty_sale');
                 }
 
-                // Rebuild hash to detect tampering
                 $dataToHash = $items->map(fn ($i) => [
                     'product_id' => (int) $i->product_id,
                     'quantity'   => (string) number_format((float) $i->quantity, 2, '.', ''),
@@ -77,7 +74,6 @@ class FulfillmentService
                     throw new RuntimeException('sale_items_modified');
                 }
 
-                // Mark token as used FIRST (critical invariant)
                 DB::table('fulfillment_tokens')
                     ->where('id', $token->id)
                     ->update([
@@ -86,7 +82,6 @@ class FulfillmentService
                         'updated_at' => now(),
                     ]);
 
-                // Create fulfillment record
                 $fulfillmentId = DB::table('warehouse_fulfillments')->insertGetId([
                     'sale_id'      => $token->sale_id,
                     'warehouse_id' => $token->warehouse_id,
@@ -96,7 +91,11 @@ class FulfillmentService
                     'updated_at'   => now(),
                 ]);
 
-                // Decrease stock (NORMAL SALE FLOW)
+                $fulfillment = WarehouseFulfillment::findOrFail($fulfillmentId);
+
+                $fulfillment = FulfillmentStateMachine::transition($fulfillment, 'approved');
+                $fulfillment = FulfillmentStateMachine::transition($fulfillment, 'released');
+
                 foreach ($items as $item) {
                     StockService::decrease(
                         $businessId,
@@ -104,60 +103,73 @@ class FulfillmentService
                         (int) $item->product_id,
                         (float) $item->quantity,
                         'sale',
-                        'warehouse_fulfillments',
-                        $fulfillmentId,
+                        'sales',
+                        $token->sale_id,
                         $user?->id
                     );
                 }
+
+                FulfillmentStateMachine::transition($fulfillment, 'reconciled');
             });
-        } catch (RuntimeException $e) {
-            throw $e;
+
         } catch (Throwable $e) {
+
+            if (isset($fulfillment)) {
+                FulfillmentStateMachine::conflict(
+                    $fulfillment,
+                    $e->getMessage()
+                );
+            }
+
             throw $e;
         }
     }
 
     /**
      * Fulfill an approved offline fulfillment pending record.
-     *
-     * @throws ValidationException
      */
     public function fulfillOffline(OfflineFulfillmentPending $pending): void
-{
-        $payload = $pending->payload;
+    {
+        try {
+            $pending->refresh();
 
-        if (!isset($payload['items']) || empty($payload['items'])) {
-            throw ValidationException::withMessages([
-                'payload' => 'Offline payload missing items.',
-            ]);
-        }
+            $payload = $pending->payload;
 
-        $warehouse = Warehouse::query()
-            ->select('id', 'business_id')
-            ->findOrFail($pending->warehouse_id);
+            if (!isset($payload['items']) || empty($payload['items'])) {
+                throw ValidationException::withMessages([
+                    'payload' => 'Offline payload missing items.',
+                ]);
+            }
 
-        foreach ($payload['items'] as $item) {
-            StockService::decrease(
-                (int) $warehouse->business_id,   // ✅ FIX
-                (int) $warehouse->id,
-                (int) $item['product_id'],
-                (float) $item['quantity'],
-                'sale',
-                'offline_fulfillment_pendings',
-                $pending->id,
-                Auth::id()
+            $warehouse = Warehouse::query()
+                ->select('id', 'business_id')
+                ->findOrFail($pending->warehouse_id);
+
+            // ✅ SIDE EFFECTS ONLY (idempotent)
+            foreach ($payload['items'] as $item) {
+                StockService::decrease(
+                    (int) $warehouse->business_id,
+                    (int) $warehouse->id,
+                    (int) $item['product_id'],
+                    (float) $item['quantity'],
+                    'sale',
+                    'offline_fulfillment_pendings',
+                    $pending->id,
+                    Auth::id()
+                );
+            }
+
+            // ❌ NO STATE TRANSITION
+            // ❌ NO AUDIT LOGGING
+
+        } catch (Throwable $e) {
+
+            OfflineFulfillmentStateMachine::conflict(
+                $pending,
+                $e->getMessage()
             );
-        }
 
-        AuditService::log(
-            action: 'offline_fulfillment_reconciled',
-            module: 'offline_fulfillment',
-            auditableType: OfflineFulfillmentPending::class,
-            auditableId: $pending->id,
-            metadata: [
-                'warehouse_id' => $warehouse->id,
-                'business_id'  => $warehouse->business_id,
-            ]
-        );
+            throw $e;
+        }
     }
 }

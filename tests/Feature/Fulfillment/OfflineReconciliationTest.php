@@ -5,10 +5,7 @@ namespace Tests\Feature\Fulfillment;
 use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Models\User;
-use App\Models\Warehouse;
-use App\Models\Product;
 use App\Models\OfflineFulfillmentPending;
-use App\Services\StockService;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Tests\Helpers\FulfillmentTestHelper;
@@ -34,11 +31,9 @@ class OfflineReconciliationTest extends TestCase
 
         $pending = $this->createOfflinePending();
 
-        $response = $this->postJson(
+        $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/approve"
-        );
-
-        $response->assertForbidden();
+        )->assertForbidden();
     }
 
     /** @test */
@@ -51,11 +46,9 @@ class OfflineReconciliationTest extends TestCase
 
         $pending = $this->createOfflinePending();
 
-        $response = $this->postJson(
+        $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/reconcile"
-        );
-
-        $response->assertStatus(422);
+        )->assertStatus(422);
     }
 
     /** @test */
@@ -73,11 +66,9 @@ class OfflineReconciliationTest extends TestCase
             ['reason' => 'Invalid payload']
         );
 
-        $response = $this->postJson(
+        $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/reconcile"
-        );
-
-        $response->assertStatus(422);
+        )->assertStatus(422);
     }
 
     /** @test */
@@ -91,18 +82,29 @@ class OfflineReconciliationTest extends TestCase
 
         [$pending, $product, $warehouse] = $this->createOfflinePendingWithStock();
 
+        // APPROVE
         $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/approve"
         )->assertOk();
 
+        /**
+         * 🔥 SMOKING GUN 🔥
+         * If this fails, approval never persisted.
+         */
+        $this->assertDatabaseHas('offline_fulfillment_pendings', [
+            'id'     => $pending->id,
+            'state' => 'approved',
+        ]);
+
+        // RECONCILE
         $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/reconcile"
         )->assertOk();
 
         $this->assertDatabaseHas('warehouse_stock', [
             'warehouse_id' => $warehouse->id,
-            'product_id' => $product->id,
-            'quantity' => 9,
+            'product_id'   => $product->id,
+            'quantity'     => 9,
         ]);
     }
 
@@ -120,11 +122,9 @@ class OfflineReconciliationTest extends TestCase
         $this->postJson("/api/offline-fulfillments/{$pending->id}/approve");
         $this->postJson("/api/offline-fulfillments/{$pending->id}/reconcile");
 
-        $response = $this->postJson(
+        $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/reconcile"
-        );
-
-        $response->assertStatus(422);
+        )->assertStatus(422);
     }
 
     /** @test */
@@ -142,7 +142,7 @@ class OfflineReconciliationTest extends TestCase
         $this->postJson("/api/offline-fulfillments/{$pending->id}/reconcile");
 
         $this->assertDatabaseHas('audit_logs', [
-            'action' => 'offline_fulfillment_reconciled',
+            'action'  => 'offline_fulfillment_reconciled',
             'user_id' => $supervisor->id,
         ]);
     }

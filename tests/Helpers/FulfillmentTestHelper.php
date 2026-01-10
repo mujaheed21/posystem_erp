@@ -16,7 +16,7 @@ use Spatie\Permission\Models\Permission;
 trait FulfillmentTestHelper
 {
     /**
-     * Create and authenticate a warehouse user with fulfillment access.
+     * Create and authenticate a warehouse user with fulfill permission.
      */
     protected function setupWarehouseUser(): User
     {
@@ -28,10 +28,6 @@ trait FulfillmentTestHelper
             'business_id' => $business->id,
         ]);
 
-        /**
-         * We do NOT have a BusinessLocation model.
-         * So we create a logical location ID and attach it to the user.
-         */
         $businessLocationId = DB::table('business_locations')->insertGetId([
             'business_id' => $business->id,
             'name'        => 'Test Location',
@@ -45,17 +41,16 @@ trait FulfillmentTestHelper
         ]);
 
         $user->givePermissionTo('warehouse.fulfill');
-
         Sanctum::actingAs($user);
 
-        // Convenience for tests
+        // convenience for tests
         $user->warehouse_id = $warehouse->id;
 
         return $user;
     }
 
     /**
-     * Create an offline fulfillment pending record (no stock guaranteed).
+     * Create a basic offline pending fulfillment (NO stock guaranteed).
      */
     protected function createOfflinePending(): OfflineFulfillmentPending
     {
@@ -65,32 +60,39 @@ trait FulfillmentTestHelper
             'business_id' => $warehouse->business_id,
         ]);
 
-        return OfflineFulfillmentPending::create([
-            'sale_id'      => 1,
-            'warehouse_id' => $warehouse->id,
-            'payload'      => [
-                'sale_id'      => 1,
-                'warehouse_id' => $warehouse->id,
-                'items'        => [
-                    [
-                        'product_id' => $product->id,
-                        'quantity'   => 1,
-                    ],
-                ],
-                'items_hash' => hash('sha256', 'test'),
-                'expires_at' => now()->addHour()->timestamp,
-                'nonce'      => Str::uuid()->toString(),
-                'kid'        => 'test-key',
-                'signature'  => 'fake-signature',
+       $user = $this->createTestUserWithLocation($warehouse->business_id);
+
+$saleId = DB::table('sales')->insertGetId([
+    'business_id'          => $warehouse->business_id,
+    'business_location_id' => $user->business_location_id,
+    'warehouse_id'         => $warehouse->id,
+    'sale_number'          => 'OFFLINE-' . Str::upper(Str::random(8)),
+    'created_by'           => $user->id,
+    'created_at'           => now(),
+    'updated_at'           => now(),
+]);
+
+return OfflineFulfillmentPending::create([
+    'sale_id'      => $saleId,
+    'warehouse_id' => $warehouse->id,
+    'state'       => 'pending',
+    'payload'      => [
+        'items' => [
+            [
+                'product_id' => $product->id,
+                'quantity'   => 1,
             ],
-            'status' => 'pending',
-        ]);
+        ],
+    ],
+]);
+
     }
 
     /**
-     * Create an offline pending record with warehouse stock available.
+     * Create an offline pending fulfillment WITH stock.
      *
-     * @return array [OfflineFulfillmentPending, Product, Warehouse]
+     * RETURN ORDER IS STRICT:
+     * [OfflineFulfillmentPending, Product, Warehouse]
      */
     protected function createOfflinePendingWithStock(): array
     {
@@ -106,26 +108,32 @@ trait FulfillmentTestHelper
             'quantity'     => 10,
         ]);
 
-        $pending = OfflineFulfillmentPending::create([
-            'sale_id'      => 1,
-            'warehouse_id' => $warehouse->id,
-            'payload'      => [
-                'sale_id'      => 1,
-                'warehouse_id' => $warehouse->id,
-                'items'        => [
-                    [
-                        'product_id' => $product->id,
-                        'quantity'   => 1,
-                    ],
-                ],
-                'items_hash' => hash('sha256', 'test'),
-                'expires_at' => now()->addHour()->timestamp,
-                'nonce'      => Str::uuid()->toString(),
-                'kid'        => 'test-key',
-                'signature'  => 'fake-signature',
+        $user = $this->createTestUserWithLocation($warehouse->business_id);
+
+$saleId = DB::table('sales')->insertGetId([
+    'business_id'          => $warehouse->business_id,
+    'business_location_id' => $user->business_location_id,
+    'warehouse_id'         => $warehouse->id,
+    'sale_number'          => 'OFFLINE-' . Str::upper(Str::random(8)),
+    'created_by'           => $user->id,
+    'created_at'           => now(),
+    'updated_at'           => now(),
+]);
+
+$pending = OfflineFulfillmentPending::create([
+    'sale_id'      => $saleId,
+    'warehouse_id' => $warehouse->id,
+    'state'       => 'pending',
+    'payload'      => [
+        'items' => [
+            [
+                'product_id' => $product->id,
+                'quantity'   => 1,
             ],
-            'status' => 'pending',
-        ]);
+        ],
+    ],
+]);
+
 
         return [$pending, $product, $warehouse];
     }
@@ -134,54 +142,63 @@ trait FulfillmentTestHelper
      * Create a sale with a single item and seeded warehouse stock.
      */
     protected function createSaleWithItem(
-    int $businessId,
-    int $userId,
-    int $warehouseId
-): int {
-    $user = User::findOrFail($userId);
+        int $businessId,
+        int $userId,
+        int $warehouseId
+    ): int {
+        $user = User::findOrFail($userId);
 
-    $product = Product::factory()->create([
+        $product = Product::factory()->create([
+            'business_id' => $businessId,
+        ]);
+
+        $saleNumber = 'SALE-' . strtoupper(Str::random(8));
+
+        $saleId = DB::table('sales')->insertGetId([
+            'business_id'          => $businessId,
+            'business_location_id' => $user->business_location_id,
+            'warehouse_id'         => $warehouseId,
+            'sale_number'          => $saleNumber,
+            'created_by'           => $userId,
+            'created_at'           => now(),
+            'updated_at'           => now(),
+        ]);
+
+        DB::table('sale_items')->insert([
+            'sale_id'     => $saleId,
+            'product_id'  => $product->id,
+            'quantity'    => 1,
+            'unit_price'  => 1000,
+            'total_price' => 1000,
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
+
+        WarehouseStock::updateOrCreate(
+            [
+                'warehouse_id' => $warehouseId,
+                'product_id'   => $product->id,
+            ],
+            [
+                'quantity' => 10,
+            ]
+        );
+
+        return $saleId;
+    }
+    protected function createTestUserWithLocation(int $businessId): User
+{
+    $locationId = DB::table('business_locations')->insertGetId([
         'business_id' => $businessId,
-    ]);
-
-    // Generate deterministic sale number for tests
-    $saleNumber = 'SALE-' . strtoupper(Str::random(8));
-
-    // Create sale (ALL required fields)
-    $saleId = DB::table('sales')->insertGetId([
-        'business_id'          => $businessId,
-        'business_location_id' => $user->business_location_id,
-        'warehouse_id'         => $warehouseId,
-        'sale_number'          => $saleNumber,
-        'created_by'           => $userId,
-        'created_at'           => now(),
-        'updated_at'           => now(),
-    ]);
-
-    // Create sale item
-    DB::table('sale_items')->insert([
-        'sale_id'     => $saleId,
-        'product_id'  => $product->id,
-        'quantity'    => 1,
-        'unit_price'  => 1000,
-        'total_price' => 1000, // quantity × unit_price
+        'name'        => 'Test Location',
         'created_at'  => now(),
         'updated_at'  => now(),
     ]);
 
-
-
-    // Seed stock
-    WarehouseStock::updateOrCreate(
-        [
-            'warehouse_id' => $warehouseId,
-            'product_id'   => $product->id,
-        ],
-        [
-            'quantity' => 10,
-        ]
-    );
-
-    return $saleId;
+    return User::factory()->create([
+        'business_id'          => $businessId,
+        'business_location_id' => $locationId,
+    ]);
 }
+
 }

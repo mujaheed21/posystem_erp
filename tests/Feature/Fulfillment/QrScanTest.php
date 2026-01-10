@@ -59,7 +59,7 @@ class QrScanTest extends TestCase
     }
 
     #[Test]
-    public function valid_fulfillment_token_is_approved(): void
+    public function valid_fulfillment_token_is_reconciled(): void
     {
         $user = $this->setupWarehouseUser();
 
@@ -96,7 +96,10 @@ class QrScanTest extends TestCase
             'token' => $token,
         ])
         ->assertStatus(200)
-        ->assertJson(['status' => 'approved']);
+       ->assertJson([
+            'status' => 'success',
+            'state'  => 'reconciled',
+        ]);
     }
 
     #[Test]
