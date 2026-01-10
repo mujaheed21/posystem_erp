@@ -6,23 +6,23 @@
 
 ## 🔴 PRIORITY 1 — CRITICAL PATH (BLOCKS PRODUCTION)
 
-### 1. Fulfillment State Machine Engine
+                      ### 1. Fulfillment State Machine Engine
 
-**Tasks**
+                      **Tasks**
 
-* Define canonical states:
+                      * Define canonical states:
 
-  * `pending → approved → released → reconciled`
-  * `conflicted` (terminal exception)
-* Enforce single finalization per sale
-* Enforce idempotent stock deduction
-* Apply DB-level state guards (unique constraints + optimistic locking)
-* Prevent race conditions across devices and jobs
+                        * `pending → approved → released → reconciled`
+                        * `conflicted` (terminal exception)
+                      * Enforce single finalization per sale
+                      * Enforce idempotent stock deduction
+                      * Apply DB-level state guards (unique constraints + optimistic locking)
+                      * Prevent race conditions across devices and jobs
 
-**Outcome**
+                      **Outcome**
 
-* Eliminates double fulfillment
-* Forms the backbone of auditability and trust
+                      * Eliminates double fulfillment
+                      * Forms the backbone of auditability and trust
 
 ---
 

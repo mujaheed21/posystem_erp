@@ -1,327 +1,193 @@
-# Continuity Map
+# CONTINUITY MAP
 
-**Secure Multi-Location POS & Warehouse Fulfillment System**
+## Purpose
 
-This document defines the **authoritative continuity contract** between models, services, database schema, and tests.
-Any future change must preserve these invariants unless explicitly refactored across all layers.
+This document defines **continuity rules** that must hold across code, database schema, tests, and operational behavior.
 
----
-## 1. Core Domain Invariants (Non-Negotiable)
+It exists to prevent:
 
-### 1.1 Business
+* Silent contract drift
+* Ambiguous ownership of state
+* Hidden coupling between services
+* Nondeterministic behavior that breaks tests
 
-* A **Business** is the root ownership entity.
-* All warehouses, products, sales, and users belong to **exactly one business**.
-* `business_id` is **mandatory** everywhere it appears.
-
----
-
-### 1.2 Warehouse
-
-* A **Warehouse** belongs to one Business.
-* Warehouses are the **only stock-holding entities**.
-* Fulfillment always reduces stock **from a warehouse**, never directly from a business.
-
-**Key fields**
-
-* `id`
-* `business_id`
+Any violation of this map is a **system-level defect**.
 
 ---
 
-### 1.3 User
+## Canonical Vocabulary (Enforced)
 
-* A **User** belongs to a Business.
-* A user may act in the context of **one warehouse at a time** during fulfillment.
-* Warehouse context is **runtime-bound**, not permanently relational.
+| Term        | Meaning                        | Allowed Usage                          |
+| ----------- | ------------------------------ | -------------------------------------- |
+| `state`     | Persisted lifecycle truth      | Database, domain logic, state machines |
+| `status`    | Transport / response indicator | API responses only                     |
+| Lifecycle   | Controlled state progression   | State machines only                    |
+| Side effect | Non-state operation            | Services only                          |
 
-**Authorization**
-
-* Fulfillment requires `warehouse.fulfill` permission.
-* Authentication is enforced before any fulfillment logic.
-
----
-
-## 2. Sales & Fulfillment Continuity
-
-### 2.1 Sale
-
-A **Sale** represents a completed POS transaction awaiting warehouse fulfillment.
-
-**Mandatory fields**
-
-* `business_id`
-* `business_location_id` *(logical grouping only; no model dependency)*
-* `warehouse_id`
-* `sale_number`
-* `created_by`
-
-**Invariant**
-
-> A sale **must be fully self-describing** without inferred defaults.
+**Rule:** `status` MUST NOT appear in persistence or domain logic.
 
 ---
 
-### 2.2 Sale Items
+## Offline Fulfillment Continuity
 
-Each sale contains one or more immutable sale items.
+### Lifecycle Authority
 
-**Mandatory fields**
+* `OfflineFulfillmentStateMachine` is the **only component** allowed to:
 
-* `sale_id`
-* `product_id`
-* `quantity`
-* `unit_price`
-* `total_price`
+  * Read lifecycle truth
+  * Validate transitions
+  * Mutate `state`
+  * Emit lifecycle audit events
 
-**Invariant**
-
-> Sale items are the **source of truth** for fulfillment hashing.
+No service, controller, job, or test helper may bypass this authority.
 
 ---
 
-### 2.3 Fulfillment Token
-
-* Tokens are **single-use**
-* Tokens are **hash-verified**
-* Tokens are **time-bound**
-* Tokens are **sale-bound**
-
-**Failure modes**
-
-* invalid
-* expired
-* reused
-* tampered sale items
-
-All failures must be **explicit and deterministic**.
-
----
-
-## 3. Stock Engine Continuity
-
-### 3.1 Warehouse Stock
-
-Represents current available stock.
-
-**Unique constraint**
+### Allowed State Transitions
 
 ```
-(warehouse_id, product_id)
+pending  → approved → reconciled
+pending  → rejected
 ```
 
-**Invariant**
-
-> Stock rows are **never duplicated** — only updated.
-
----
-
-### 3.2 Stock Movement
-
-Every stock change **must** generate a movement record.
-
-**Mandatory fields**
-
-* `business_id`
-* `warehouse_id`
-* `product_id`
-* `type` (ENUM)
-* `quantity` (signed)
-* `reference_type`
-* `reference_id`
-* `created_by`
-
-**Allowed `type` ENUM values**
-
-* `sale`
-* `offline_reconciliation`
-
-**Invariant**
-
-> Stock cannot change without an auditable movement.
+* `reconciled` and `rejected` are terminal
+* Backward or repeated transitions are forbidden
 
 ---
 
-## 4. Offline Fulfillment Continuity
+### Persistence Rules
 
-### 4.1 OfflineFulfillmentPending
-
-Represents fulfillment performed **without live validation**, pending reconciliation.
-
-**States**
-
-* `pending`
-* `approved`
-* `reconciled`
-* `rejected`
-
-**Invariant**
-
-> Reconciliation is **one-time and irreversible**.
+* `state` is the only persisted lifecycle column
+* `status` may exist historically but must never be mutated
+* Model-level guards must prevent `status` mutation
+* Guards must trigger on **intentional mutation only** (`isDirty('status')`)
 
 ---
 
-### 4.2 Offline Reconciliation
+### Audit Continuity
 
-* Requires **approval**
-* Must be **idempotent**
-* Must:
+* Lifecycle audit events are emitted **once and only once**
+* Audit action: `offline_fulfillment_reconciled`
+* Audit emission occurs **inside the state machine**
+* Services must pass metadata, not emit audits
 
-  * Decrease stock
-  * Write stock movements
-  * Write audit log
-  * Mark record reconciled
+Duplicate lifecycle audits are forbidden.
 
 ---
 
-## 5. Audit Continuity
+### Side Effect Boundary
 
-### 5.1 Audit Log
+* `FulfillmentService::fulfillOffline()`:
 
-All sensitive actions must emit an audit entry.
+  * Performs stock deduction only
+  * Must not mutate lifecycle state
+  * Must not emit lifecycle audit logs
 
-**Required fields**
+* Stock mutations:
 
-* `action`
-* `user_id`
-* `auditable_type`
-* `auditable_id`
-* `metadata`
-
-**Key Actions**
-
-* `offline_fulfillment_reconciled`
-* `warehouse_fulfillment_verified`
+  * Must pass through `StockService`
+  * Must be idempotent
+  * Must be auditable
 
 ---
 
-## 6. Test Continuity Rules
+## QR / Online Fulfillment Continuity
 
-### 6.1 Test Helpers
+### Token Guarantees
 
-* Tests must **explicitly seed all required DB fields**
-* No test may rely on:
+* Fulfillment tokens are:
 
-  * DB defaults
-  * Hidden migrations
-  * Phantom models (e.g. `BusinessLocation`)
+  * Single-use
+  * Row-locked during processing
+  * Invalid after use or expiry
 
----
-
-### 6.2 Feature Tests
-
-Each feature test must validate:
-
-* Authentication
-* Authorization
-* Business scoping
-* Idempotency
-* Audit trail
-
-**If a test passes without asserting these, it is incomplete.**
+Parallel or replay execution must fail deterministically.
 
 ---
 
-## 7. Forbidden Assumptions (Do Not Re-Introduce)
+### Online Fulfillment Lifecycle
 
-❌ Implicit business location models
-❌ Nullable foreign keys for core flows
-❌ Silent enum coercion
-❌ Stock mutation without movement
-❌ Reusable fulfillment tokens
+```
+pending → approved → released → reconciled
+```
+
+* Transitions are forward-only
+* Final states are terminal
+* Partial execution results in a conflicted fulfillment
+
+---
+
+### Online vs Offline Separation
+
+* Online fulfillment uses `FulfillmentStateMachine`
+* Offline fulfillment uses `OfflineFulfillmentStateMachine`
+* These machines are independent
+* No shared lifecycle fields
+* No cross-machine transitions
 
 ---
 
-## 8. Change Protocol
+## Stock Continuity
 
-Any change that touches:
+* Stock is a ledger, not a counter
+* `StockService` is the sole authority
+* Each stock mutation must:
 
-* sales
-* fulfillment
-* stock
-* reconciliation
-
-**Must update**
-
-1. Service logic
-2. Tests
-3. This continuity map
-
-Failure to do so is a **breaking change**.
+  * Create a movement record
+  * Be idempotent
+  * Be scoped to a business + warehouse + reference
 
 ---
-## 9. Fulfillment State Machine Continuity
 
-**Canonical States:**
+## Authorization Continuity
 
-  * pending → approved → released → reconciled
-  * conflicted (terminal)
+* Authorization is explicit and enforced at boundaries
+* Required permissions:
 
-**State Rules:**
-•	No backward transitions
-•	No skipped transitions
-•	reconciled and conflicted are terminal
-•	All state changes occur inside a database transaction
-•	State transitions are the only path to finalization
+  * `warehouse.fulfill`
+  * `offline.fulfillment.approve`
 
-**Database Guards:**
-•	warehouse_fulfillments.sale_id is UNIQUE
-•	warehouse_fulfillments.version enforces optimistic locking
-•	Fulfillment rows are locked during transitions
-•	Fulfillment tokens are locked during verification
+No implicit trust or role inference is allowed.
 
-**Stock Continuity:**
-•	Stock movement is scoped to:
-•	reference_type = sales
-•	reference_id   = sale_id
-•	(reference_type, reference_id, product_id) is UNIQUE
-•	Duplicate stock deductions are rejected at DB level
+---
 
-**Guarantees:**
-•	Double fulfillment is structurally impossible
-•	Concurrent scans resolve safely without race conditions
-•	Retries and job replays are idempotent
-•	Stock cannot mutate without a final fulfillment state
-•	Conflicted executions are detectable and reviewable
+## Testing Continuity
 
-**Invariant:**
-Fulfillment is atomic, final, and auditable.
-No stock change may occur outside a reconciled fulfillment
+Tests are part of the continuity contract.
 
+* Feature tests define invariants
+* Tests must assume deterministic behavior
+* Any change causing:
 
+  * Duplicate side effects
+  * Ambiguous state
+  * Multiple audits per lifecycle
 
+must fail tests immediately.
 
+---
 
-**Status:**
-✅ All current feature and unit tests passing
-✅ Continuity validated end-to-end
+## Change Discipline
 
+Any change that affects:
 
+* Lifecycle semantics
+* Audit behavior
+* State naming
+* Stock mutation rules
 
-4️⃣ Canonical rule (this ends the inconsistency)
-From now on, apply this non-negotiable rule:
-✅ Use state when ALL are true:
-Finite set of allowed values
-Explicit allowed transitions
-Terminal states exist
-Concurrency matters
-Idempotency matters
-Reconciliation / approval involved
+MUST update:
 
-Examples
-offline_fulfillment_pendings
-warehouse_fulfillments
-inventory_adjustments (future)
-returns_workflows (future)
+1. `PROJECT_CONTEXT.md`
+2. This `CONTINUITY_MAP.md`
+3. Relevant feature tests
 
-✅ Use status when ANY are true:
-Descriptive / reporting-oriented
-Linear progression
-No strict transition enforcement
-No concurrency locks required
+Failure to update all three constitutes a **continuity violation**.
 
-Examples
-sales
-purchases
-purchase_receipts
-stock_transfers
+---
+
+## Final Assertion
+
+This continuity map is **binding**.
+
+Code that contradicts it is incorrect, even if it appears to work.
