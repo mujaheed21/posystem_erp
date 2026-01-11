@@ -1,266 +1,142 @@
 # PROJECT CONTEXT
 
-## Project Name
-
 **Secure Multi-Location POS & Warehouse Fulfillment System**
 
----
+This document defines the **scope, intent, assumptions, and evolution boundaries** of the system. It provides contextual guidance for developers, auditors, and stakeholders while deferring all invariant rules to `CONTINUITY_MAP.md`.
 
-## Purpose
+Where conflicts arise:
 
-This project is a **security-first, transaction-driven POS and warehouse fulfillment platform** designed to guarantee:
-
-* Correct stock movement
-* Explicit authorization
-* Single-use fulfillment
-* Deterministic state transitions
-* Complete auditability
-
-The system is intentionally engineered to **prevent by design**:
-
-* Double fulfillment
-* Stock desynchronization
-* Unauthorized warehouse actions
-* Silent or unaudited inventory changes
-* Nondeterministic behavior that breaks tests
-
-This is not a CRUD POS.
-It is a **fulfillment engine with strict invariants**.
+* **Continuity Map overrides this document**
+* This document explains *why* and *how*, not *what must never change*
 
 ---
 
-## Core Invariants (Non-Negotiable)
+## 1. System Purpose
 
-### 1. Stock Is a Ledger, Not a Counter
+The system is designed to:
 
-* Stock **must never** be mutated directly.
-* All stock changes go through `StockService`.
-* Every change produces a `stock_movements` record.
-* Idempotency is enforced at the service level.
+* Support multi-location point-of-sale operations
+* Enable offline-first fulfillment workflows
+* Synchronize warehouse inventory with delayed reconciliation
+* Enforce accountability for high-risk operational decisions
 
-### 2. Fulfillment Is Single-Use and Transactional
+The system prioritizes:
 
-* QR / online fulfillment tokens:
-
-  * Are single-use
-  * Are row-locked (`SELECT … FOR UPDATE`)
-  * Become invalid immediately after use or expiry
-* Offline fulfillments:
-
-  * Require explicit approval
-  * Can be reconciled once and only once
-  * Cannot be replayed or retried silently
-
-### 3. Authorization Is Explicit
-
-* `warehouse.fulfill` is required for any fulfillment action
-* `offline.fulfillment.approve` is required for offline approval
-* No implicit role or fallback authorization exists
-
-### 4. Lifecycle State Is Explicit and Singular
-
-* **`state` is the only persisted lifecycle field**
-* `status` is reserved strictly for API response semantics
-* Lifecycle transitions are forward-only and terminal when completed
-
-### 5. Audit Is Mandatory for Lifecycle Events
-
-* Every lifecycle transition that finalizes fulfillment is audited
-* No reconciliation or stock mutation may occur without an audit trail
+* Correctness over speed
+* Traceability over convenience
+* Explicit policy over implicit behavior
 
 ---
 
-## Domain Language (Strict)
+## 2. Operational Environment
 
-| Term           | Meaning                                  |
-| -------------- | ---------------------------------------- |
-| `state`        | Persisted lifecycle state (domain truth) |
-| `status`       | API / transport response indicator only  |
-| Fulfillment    | A controlled, single-use stock operation |
-| Reconciliation | Finalization of a fulfillment lifecycle  |
+The system operates in environments where:
 
-Any deviation from this vocabulary is considered a defect.
+* Network connectivity may be intermittent
+* Staff roles are distributed across locations
+* Inventory integrity is business-critical
+* Fraud risk is non-trivial
+* Regulatory or internal audit requirements exist
 
----
+These constraints justify:
 
-## Implemented Fulfillment Flows
-
-### 1. QR / Online Fulfillment
-
-#### Flow
-
-1. Authenticated warehouse user scans fulfillment token
-2. Token row is locked (`SELECT … FOR UPDATE`)
-3. Token validity is verified:
-
-   * Exists
-   * Not used
-   * Not expired
-4. Sale items are reloaded and hashed
-5. Hash is compared to token payload
-6. Token is marked as used **before** stock movement
-7. Fulfillment record is created
-8. Fulfillment state transitions:
-
-   * `pending → approved`
-   * `approved → released`
-9. Stock is decreased via `StockService` (idempotent)
-10. Fulfillment state transitions:
-
-    * `released → reconciled`
-11. Any failure after creation marks fulfillment as conflicted
-
-#### Guarantees
-
-* Token reuse is impossible
-* Parallel scans cannot succeed
-* Modified sale items invalidate the token
-* Stock is deducted exactly once
-* Final state is deterministic and auditable
+* Offline fulfillment queues
+* Post-event reconciliation
+* Supervisor override mechanisms
 
 ---
 
-### 2. Offline Fulfillment Reconciliation
+## 3. Security Posture (Contextual)
 
-#### Flow
+### 3.1 Trust Model
 
-1. Offline payload is created externally
-2. Payload is stored as `OfflineFulfillmentPending`
-3. Supervisor approves or rejects the payload
-4. Approved payload is reconciled:
+* End users are **not trusted by default**
+* Roles grant access, not authority
+* Authority is exercised per event, not per role
 
-   * Payload structure is validated
-   * Stock is decreased per item via `StockService`
-   * Lifecycle audit is written
-   * State is set to `reconciled`
+### 3.2 Override Philosophy
 
-#### Rejection Conditions
+Supervisor overrides exist to:
 
-* Payload not approved
-* Already reconciled
-* Already rejected
-* Missing or empty payload items
+* Document exceptional decisions
+* Attribute responsibility
+* Provide legal and audit context
+
+Overrides are **not workflows** and **not approvals**.
 
 ---
 
-## Offline Fulfillment Lifecycle Authority
+## 4. Scope Boundaries
 
-### State Machine
+### 4.1 In Scope
 
-* `OfflineFulfillmentStateMachine` is the **sole authority** for:
+* Sales lifecycle management
+* Offline fulfillment and reconciliation
+* Warehouse stock adjustments
+* Audit logging
+* Supervisor override enforcement
 
-  * State transitions
-  * Transition validation
-  * Lifecycle audit logging
+### 4.2 Out of Scope
 
-#### Allowed Transitions
-
-* `pending → approved`
-* `pending → rejected`
-* `approved → reconciled`
-
-`reconciled` and `rejected` are terminal.
-
-No service, controller, or job may bypass this machine.
+* Automated fraud adjudication
+* Real-time regulatory reporting
+* Human resource management
+* Payroll or accounting finalization
 
 ---
 
-## Service Responsibilities (Hard Boundaries)
+## 5. Evolution Expectations
 
-### `StockService`
+The system is expected to evolve in:
 
-* Central authority for stock changes
-* Enforces:
+* UI/UX presentation
+* Performance optimizations
+* Integration points (payments, logistics)
+* Reporting and analytics
 
-  * Valid movement types
-  * Idempotency
-  * Warehouse-product uniqueness
-* No caller may mutate stock directly
+The system is **not expected to evolve** in:
 
-### `FulfillmentService`
-
-* Handles QR / online fulfillment flow
-* Executes **side effects only**
-* Does not decide lifecycle truth
-
-### `OfflineReconciliationService`
-
-* Coordinates approval and reconciliation
-* Enforces:
-
-  * Single reconciliation
-  * Transactional integrity
-* Delegates lifecycle decisions to the state machine
+* Weakening of override enforcement
+* Reduction of audit coverage
+* Implicit permission escalation
 
 ---
 
-## Audit Architecture
+## 6. Testing Philosophy (Contextual)
 
-* Lifecycle audit events are emitted **only** by state machines
-* Action: `offline_fulfillment_reconciled`
-* Exactly **one audit log per lifecycle**
-* Audit metadata (e.g. `warehouse_id`, `business_id`) is passed into the state machine by callers
-* Duplicate lifecycle audits are forbidden
+* Tests validate both correctness and governance
+* Critical security behaviors are protected by contract tests
+* Refactors are encouraged where contracts remain satisfied
 
----
+Testing exists to:
 
-## Model Guards
-
-* `OfflineFulfillmentPending` enforces a guard preventing mutation of `status`
-* Guard triggers only when `status` is dirty (`isDirty('status')`)
-* This prevents schema drift while avoiding false positives
+* Prevent regression
+* Detect policy drift
+* Enforce architectural intent
 
 ---
 
-## Testing Philosophy
+## 7. Documentation Strategy
 
-This system is **test-defined**, not test-decorated.
+This project uses layered documentation:
 
-Feature tests define invariants:
+* `CONTINUITY_MAP.md` — invariant rules
+* `PROJECT_CONTEXT.md` — scope and intent
+* Audit documents — legal and compliance semantics
+* Code — implementation
 
-* `QrScanTest`
-* `OfflineReconciliationTest`
-
-Tests are treated as **architectural constraints**, not regression checks.
-
-Any change that:
-
-* Breaks determinism
-* Reintroduces lifecycle ambiguity
-* Allows duplicate side effects
-
-must fail tests immediately.
+No single document is sufficient on its own.
 
 ---
 
-## Current Status
+## 8. Stakeholder Interpretation Guide
 
-* ✔ All feature tests passing
-* ✔ Lifecycle determinism enforced
-* ✔ Audit duplication eliminated
-* ✔ Stock engine stable
-* ✔ Authorization boundaries respected
+* Developers: treat this document as **guidance**, not constraint
+* Auditors: use this document for **context**, not enforcement rules
+* Architects: ensure implementations remain aligned with stated intent
 
 ---
 
-## Design Position
+## 9. Summary Statement
 
-This system is intentionally **defensive by default**.
-
-It is designed to operate safely across:
-
-* Multiple warehouses
-* Offline and untrusted environments
-* Concurrent requests
-* Partial failures
-
-Correctness is prioritized over convenience.
-Safety is prioritized over speed.
-
----
-
-### Final Note
-
-This document is **authoritative**.
-
-Any future change that contradicts these rules is a **design regression**, not a feature.
+> This Project Context defines the environment, assumptions, and intended evolution of the system while deferring all non-negotiable rules to the Continuity Map. Together, these documents prevent policy drift and implementation conflict.

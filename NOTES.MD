@@ -6,48 +6,48 @@
 
 ## 🔴 PRIORITY 1 — CRITICAL PATH (BLOCKS PRODUCTION)
 
-### 1. Fulfillment State Machine Engine
+                      ### 1. Fulfillment State Machine Engine
 
-**Tasks**
+                      **Tasks**
 
-* Define canonical states:
+                      * Define canonical states:
 
-  * `pending → approved → released → reconciled`
-  * `conflicted` (terminal exception)
-* Enforce single finalization per sale
-* Enforce idempotent stock deduction
-* Apply DB-level state guards (unique constraints + optimistic locking)
-* Prevent race conditions across devices and jobs
+                        * `pending → approved → released → reconciled`
+                        * `conflicted` (terminal exception)
+                      * Enforce single finalization per sale
+                      * Enforce idempotent stock deduction
+                      * Apply DB-level state guards (unique constraints + optimistic locking)
+                      * Prevent race conditions across devices and jobs
 
-**Outcome**
+                      **Outcome**
 
-* Eliminates double fulfillment
-* Forms the backbone of auditability and trust
+                      * Eliminates double fulfillment
+                      * Forms the backbone of auditability and trust
 
 ---
 
-### 2. Supervisor Override Enforcement Engine
+                      ### 2. Supervisor Override Enforcement Engine
 
-**Design Resolution**
-Overrides are **security events**, not permissions.
+                      **Design Resolution**
+                      Overrides are **security events**, not permissions.
 
-**Tasks**
+                      **Tasks**
 
-* Supervisor role & privilege contract
-* Supervisor authentication:
+                      * Supervisor role & privilege contract
+                      * Supervisor authentication:
 
-  * PIN / hardware token / device binding
-* Mandatory override reason capture
-* Bind supervisor identity to:
+                        * PIN / hardware token / device binding
+                      * Mandatory override reason capture
+                      * Bind supervisor identity to:
 
-  * Offline fulfillment
-  * Conflict resolution
-* Tamper-proof audit trail (append-only)
+                        * Offline fulfillment
+                        * Conflict resolution
+                      * Tamper-proof audit trail (append-only)
 
-**Outcome**
+                      **Outcome**
 
-* Fraud-resistant offline operations
-* Legal-grade accountability
+                      * Fraud-resistant offline operations
+                      * Legal-grade accountability
 
 ---
 

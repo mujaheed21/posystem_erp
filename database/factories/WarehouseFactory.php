@@ -13,8 +13,14 @@ class WarehouseFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => $this->faker->company . ' Warehouse',
             'business_id' => Business::factory(),
+
+            'name' => 'Main Warehouse',
+            'code' => 'MAIN-WH',
+            'address' => 'Test Warehouse Address',
+
+            // schema default applies
+            'active' => true,
         ];
     }
 }
