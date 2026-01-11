@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\OfflineFulfillmentPending;
+use App\Models\SupervisorOverride;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -48,6 +49,39 @@ class OfflineFulfillmentStateMachine
                 throw new RuntimeException(
                     "invalid_offline_transition {$currentState} → {$toState}"
                 );
+            }
+
+            /**
+             * 🔐 SUPERVISOR OVERRIDE ENFORCEMENT
+             * Only for approved → reconciled when explicitly required.
+             */
+            if (
+                $currentState === 'approved' &&
+                $toState === 'reconciled' &&
+                ($locked->requires_override ?? false) === true
+            ) {
+                $overrideId = $metadata['supervisor_override_id'] ?? null;
+
+                if (! $overrideId) {
+                    throw new RuntimeException(
+                        'supervisor_override_required_for_reconciliation'
+                    );
+                }
+
+                $override = SupervisorOverride::query()->find($overrideId);
+
+                if (! $override) {
+                    throw new RuntimeException('supervisor_override_not_found');
+                }
+
+                if (
+                    $override->target_type !== OfflineFulfillmentPending::class ||
+                    $override->target_id !== $locked->id
+                ) {
+                    throw new RuntimeException(
+                        'supervisor_override_target_mismatch'
+                    );
+                }
             }
 
             // 🔒 SINGLE SOURCE OF TRUTH

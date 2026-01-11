@@ -26,28 +26,28 @@
 
 ---
 
-### 2. Supervisor Override Enforcement Engine
+                      ### 2. Supervisor Override Enforcement Engine
 
-**Design Resolution**
-Overrides are **security events**, not permissions.
+                      **Design Resolution**
+                      Overrides are **security events**, not permissions.
 
-**Tasks**
+                      **Tasks**
 
-* Supervisor role & privilege contract
-* Supervisor authentication:
+                      * Supervisor role & privilege contract
+                      * Supervisor authentication:
 
-  * PIN / hardware token / device binding
-* Mandatory override reason capture
-* Bind supervisor identity to:
+                        * PIN / hardware token / device binding
+                      * Mandatory override reason capture
+                      * Bind supervisor identity to:
 
-  * Offline fulfillment
-  * Conflict resolution
-* Tamper-proof audit trail (append-only)
+                        * Offline fulfillment
+                        * Conflict resolution
+                      * Tamper-proof audit trail (append-only)
 
-**Outcome**
+                      **Outcome**
 
-* Fraud-resistant offline operations
-* Legal-grade accountability
+                      * Fraud-resistant offline operations
+                      * Legal-grade accountability
 
 ---
 

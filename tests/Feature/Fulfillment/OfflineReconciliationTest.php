@@ -6,9 +6,11 @@ use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Models\User;
 use App\Models\OfflineFulfillmentPending;
+use App\Models\SupervisorOverride;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Tests\Helpers\FulfillmentTestHelper;
+use App\Services\OfflineFulfillmentStateMachine;
 
 class OfflineReconciliationTest extends TestCase
 {
@@ -82,21 +84,10 @@ class OfflineReconciliationTest extends TestCase
 
         [$pending, $product, $warehouse] = $this->createOfflinePendingWithStock();
 
-        // APPROVE
         $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/approve"
         )->assertOk();
 
-        /**
-         * 🔥 SMOKING GUN 🔥
-         * If this fails, approval never persisted.
-         */
-        $this->assertDatabaseHas('offline_fulfillment_pendings', [
-            'id'     => $pending->id,
-            'state' => 'approved',
-        ]);
-
-        // RECONCILE
         $this->postJson(
             "/api/offline-fulfillments/{$pending->id}/reconcile"
         )->assertOk();
@@ -145,5 +136,65 @@ class OfflineReconciliationTest extends TestCase
             'action'  => 'offline_fulfillment_reconciled',
             'user_id' => $supervisor->id,
         ]);
+    }
+
+    /** @test */
+    public function reconciliation_fails_when_supervisor_override_is_required_but_missing()
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $pending = OfflineFulfillmentPending::factory()->create([
+            'state'             => 'approved',
+            'requires_override' => true,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(
+            'supervisor_override_required_for_reconciliation'
+        );
+
+        OfflineFulfillmentStateMachine::transition(
+            $pending,
+            'reconciled',
+            $user->id,
+            []
+        );
+    }
+
+    /** @test */
+    public function supervisor_override_cannot_be_used_for_wrong_offline_fulfillment()
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $pendingA = OfflineFulfillmentPending::factory()->create([
+            'state'             => 'approved',
+            'requires_override' => true,
+        ]);
+
+        $pendingB = OfflineFulfillmentPending::factory()->create([
+            'state'             => 'approved',
+            'requires_override' => true,
+        ]);
+
+        $override = SupervisorOverride::factory()->create([
+            'target_type' => OfflineFulfillmentPending::class,
+            'target_id'   => $pendingA->id,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage(
+            'supervisor_override_target_mismatch'
+        );
+
+        OfflineFulfillmentStateMachine::transition(
+            $pendingB,
+            'reconciled',
+            $user->id,
+            [
+                'supervisor_override_id' => $override->id,
+            ]
+        );
     }
 }

@@ -1,3 +1,8 @@
+├── CONTINUITY_MAP.md
+├── NOTES.MD
+├── PROJECT_CONTEXT.md
+├── README.md
+├── TREE.md
 ├── app
 │   ├── Http
 │   │   ├── Controllers
@@ -7,21 +12,31 @@
 │   │       └── EnsureWarehouseAccess.php
 │   ├── Models
 │   │   ├── Business.php
+│   │   ├── BusinessLocation.php
 │   │   ├── Module.php
 │   │   ├── OfflineFulfillmentPending.php
 │   │   ├── Permission.php
 │   │   ├── Product.php
+│   │   ├── Purchase.php
 │   │   ├── Role.php
+│   │   ├── Sale.php
+│   │   ├── SaleItem.php
 │   │   ├── StockMovement.php
+│   │   ├── SupervisorOverride.php
 │   │   ├── User.php
 │   │   ├── Warehouse.php
-│   │   └── WarehouseStock.php
+│   │   ├── WarehouseFulfillment.php
+│   │   ├── WarehouseStock.php
+│   │   └── policyfiles
+│   │       └── Supervisor_Override_Semantics.md
 │   ├── Providers
 │   │   └── AppServiceProvider.php
 │   └── Services
 │       ├── AuditService.php
 │       ├── FulfillmentService.php
+│       ├── FulfillmentStateMachine.php
 │       ├── FulfillmentTokenService.php
+│       ├── OfflineFulfillmentStateMachine.php
 │       ├── OfflineQrSigner.php
 │       ├── OfflineQrVerifier.php
 │       ├── OfflineReconciliationService.php
@@ -29,6 +44,8 @@
 │       ├── PurchaseService.php
 │       ├── SaleService.php
 │       ├── StockService.php
+│       ├── SupervisorOverrideAuthService.php
+│       ├── SupervisorOverrideService.php
 │       └── TransferService.php
 ├── artisan
 ├── bootstrap
@@ -57,7 +74,11 @@
 │   ├── database.sqlite
 │   ├── factories
 │   │   ├── BusinessFactory.php
+│   │   ├── BusinessLocationFactory.php
+│   │   ├── OfflineFulfillmentPendingFactory.php
 │   │   ├── ProductFactory.php
+│   │   ├── SaleFactory.php
+│   │   ├── SupervisorOverrideFactory.php
 │   │   ├── UserFactory.php
 │   │   └── WarehouseFactory.php
 │   ├── migrations
@@ -94,7 +115,12 @@
 │   │   ├── 2026_01_05_212204_drop_plaintext_token_from_fulfillment_tokens.php
 │   │   ├── 2026_01_06_184310_create_purchase_receipts_table.php
 │   │   ├── 2026_01_06_184826_create_purchase_receipt_items_table.php
-│   │   └── 2026_01_08_021819_create_offline_fulfillment_pendings_table.php
+│   │   ├── 2026_01_08_021819_create_offline_fulfillment_pendings_table.php
+│   │   ├── 2026_01_09_090344_add_state_machine_to_warehouse_fulfillments_table.php
+│   │   ├── 2026_01_09_091317_add_idempotency_guard_to_stock_movements.php
+│   │   ├── 2026_01_09_102332_add_state_machine_to_offline_fulfillment_pendings_table.php
+│   │   ├── 2026_01_10_230942_create_supervisor_overrides_table.php
+│   │   └── 2026_01_10_235454_add_requires_override_to_offline_fulfillment_pendings_table.php
 │   ├── schema
 │   │   └── mysql-schema.sql
 │   └── seeders
@@ -124,25 +150,34 @@
 │   │   ├── cache
 │   │   │   └── data
 │   │   ├── sessions
-│   │   │   ├── 7UzpC8nDUtgipyLEASIl8yCvkAIZy8oRxyqZ621H
-│   │   │   ├── 9zG1PfWRIwgnzeO5nfW3aCbwyDnpz9Zy0rcjyQhf
-│   │   │   ├── DGNmxNfwek8htqzQLqgJNQUqodTtU3Bg16Ap2qmt
-│   │   │   ├── FXJrdbAFy0yK1Zit8mdywTqAg60ydsPr1SdWrGHa
-│   │   │   ├── GEsGahHcT2jt8CP3kYkx9dWXtCklKgwhPtBz3Ssq
-│   │   │   ├── H3iFzn2ZbWp38CRQIbtnKGIGPTXrG13BCwCecZ9h
-│   │   │   ├── HGygUT6nLjysXr7EBSC0lm9RoRutuz6qiCAfOJNw
-│   │   │   ├── K7YqUfDads0hM1SfStEiGG4wOeDtr6luTq5Ai5DU
-│   │   │   ├── LCeyPalxBJ7UbDCyzET6IknczAWTB1rgNOFwBQtM
-│   │   │   ├── OX7BmiMkQUvoXjLvBjHVV57rw3qFMmf0WdzPCTLz
-│   │   │   ├── PlcR13t3JmbUdeSyiNz0m2g1Wfyv6co2PnThVTkZ
-│   │   │   ├── THihYP5dFf1MJjH8yLH98jQ4Yt7qsM0qQhiLEmo5
-│   │   │   ├── befinIpKlYR68nLuE18e8aqg64gUr8c7sJLMsVMe
-│   │   │   ├── bhiGDYGOXzhKUCRpSSaYVwwNeSOFbE7WayDJ06tY
-│   │   │   ├── casGrgSWfpdrXOXOrcFvc84BDhwn9vnkQvBKe5LJ
-│   │   │   ├── d6cLobRHnS8ZyBgtrK3iqHn05KhceKIj1KQCKh0i
-│   │   │   ├── eLb5IaX3e9T6G5wyujgKS13EYSbZ6K4HQXqx2Z1O
-│   │   │   ├── gaw1ZY8ls32RNwx6MsSAi5R36VZS92ZPofb4x5vV
-│   │   │   └── lrwUISv6ETeF2Mu5u3cqZSBhegSyXDuctX0vwEaz
+│   │   │   ├── 4XnIAfZpipCxr3SEJQ7QOluUkk8C2sMqnFe9r3t6
+│   │   │   ├── 5ugEJZVEdDxoG7tJ0AAtKjCOhHdWAj6iys9LBqEe
+│   │   │   ├── 6r2yBYOYlxbRVD0Uusmj5081uqouTRoguiLOg6lV
+│   │   │   ├── HTTvpjfFTTX8RxuIicPL0EuwJMODid8WaQp9W2tz
+│   │   │   ├── Hx5Z1g2FSkWxqi8g7KQq6RCsUHpv3QpQZYlIZXIp
+│   │   │   ├── IEiI1pzVso1IkFttSrhCKfy0Uqor7zCrOJtIG9qd
+│   │   │   ├── J9dHMWWhNjYh14iCvXOdUfTx60t0efbIpKVe3aJh
+│   │   │   ├── Jmp7tML4ZF4wAd7PLyjtPNQpZbJQqPK8uWZgsyIQ
+│   │   │   ├── O78PRgWaWSrseVr0razy27644J9UYLszVJ8cqGjQ
+│   │   │   ├── S0y5PQEbkqBjoorZwv1lMTiD4JP307DMZfXvT2VZ
+│   │   │   ├── Sith3UjACj4v3MttbCMQgSb1pRLYQTIXztxwn94U
+│   │   │   ├── VUZkUJi964EuEsogg9YnNVWJWBBHrT8eclpun2bn
+│   │   │   ├── dElE8hm7cUPKszmC4hKQhfGqygycXLrRc8j553Zi
+│   │   │   ├── dPprDUMdRlGA3vCcKgCLPSWv5aSDn8kypoVoX8BL
+│   │   │   ├── dXsS9tSMJI7Bc3x1sQ6luvBOTvuuPQcqQVoBJI9D
+│   │   │   ├── eYmhMCUHbKq3vo4liiGeWTTnkZ2fyfZYkKPYjbBw
+│   │   │   ├── gs5j05k1KyTBn2srzEWDwK7koaqdWwH91aqUFaFl
+│   │   │   ├── jrfNoAcapHrmCy4rmFS5Y2m2P1Hr2QQWvGgFWi9a
+│   │   │   ├── kEb04X1lKqyf75GpkCXHf27ZwARmrtx1epNkQjD5
+│   │   │   ├── kRGsMSlOgCk0iG8nH9Zff2smrRO40cgjjGkGcEeC
+│   │   │   ├── lQ5gD7eA3OyUYG7jqaSRbh67Nw5mbvtel93TjlYx
+│   │   │   ├── oeZy1nds6L2YTqyNZAMqbDsP2cLyKtkd2hNsH5o4
+│   │   │   ├── paE17JCIEM9S8ACVExLVUKXlZAtZAfRkWTr591IB
+│   │   │   ├── qR2rHWCAhQDMRvjTA0MwMUPUne9Wg9fWLQehI002
+│   │   │   ├── tFg3YyhnGOjjgym0Qq7lB57vXFQeNZHx3F4Ab8Zv
+│   │   │   ├── woGNA9wghbwAuZK8ZEy3qUIhksTLB4z0GfWJAoFD
+│   │   │   ├── y3K6qF9yPizkQP13m4JI9GtMg4droJ28pNQo1Two
+│   │   │   └── zYYS1iG46ppD8XVccznC0Tjv7rWg2xEsePCoS4th
 │   │   ├── testing
 │   │   └── views
 │   ├── keys
