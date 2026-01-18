@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Validation\ValidationException;
 use App\Models\OfflineFulfillmentPending;
 use App\Models\SupervisorOverride;
 use Illuminate\Support\Facades\DB;
@@ -40,8 +41,11 @@ class OfflineFulfillmentStateMachine
 
             // Terminal states
             if (in_array($currentState, ['reconciled', 'rejected'], true)) {
-                throw new RuntimeException('offline_fulfillment_finalized');
-            }
+    throw ValidationException::withMessages([
+        'state' => 'offline_fulfillment_finalized',
+    ]);
+}
+
 
             $allowed = self::TRANSITIONS[$currentState] ?? [];
 
@@ -97,12 +101,15 @@ class OfflineFulfillmentStateMachine
 
                 // ✅ SINGLE authoritative audit log with metadata
                 AuditService::log(
-                    'offline_fulfillment_reconciled',
-                    'offline_fulfillment',
-                    OfflineFulfillmentPending::class,
-                    $locked->id,
-                    $metadata
-                );
+    'offline_fulfillment_reconciled',
+    'offline_fulfillment',
+    OfflineFulfillmentPending::class,
+    $locked->id,
+    array_merge($metadata, [
+        'user_id' => $userId,
+    ])
+);
+
             }
 
             $locked->save();

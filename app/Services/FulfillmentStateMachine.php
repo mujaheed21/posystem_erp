@@ -19,6 +19,9 @@ class FulfillmentStateMachine
 
     /**
      * Transition fulfillment to a new state with guards.
+     *
+     * SINGLE RULE:
+     * - Side effects belong to state transitions, not services or controllers.
      */
     public static function transition(
         WarehouseFulfillment $fulfillment,
@@ -39,16 +42,25 @@ class FulfillmentStateMachine
             // Validate transition
             $allowed = self::TRANSITIONS[$locked->state] ?? [];
 
-            if (!in_array($toState, $allowed, true)) {
+            if (! in_array($toState, $allowed, true)) {
                 throw new RuntimeException(
                     "Invalid transition {$locked->state} → {$toState}"
                 );
             }
 
-            // Optimistic version bump
+            // Perform state transition
             $locked->state = $toState;
             $locked->version++;
             $locked->save();
+
+            /**
+             * 🔐 SIDE EFFECT OWNERSHIP
+             * Stock is committed exactly once when entering 'released'
+             */
+            if ($toState === 'released') {
+                app(\App\Services\FulfillmentService::class)
+                    ->commitStockOnRelease($locked->id);
+            }
 
             return $locked;
         });

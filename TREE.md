@@ -26,9 +26,7 @@
 │   │   ├── User.php
 │   │   ├── Warehouse.php
 │   │   ├── WarehouseFulfillment.php
-│   │   ├── WarehouseStock.php
-│   │   └── policyfiles
-│   │       └── Supervisor_Override_Semantics.md
+│   │   └── WarehouseStock.php
 │   ├── Providers
 │   │   └── AppServiceProvider.php
 │   └── Services
@@ -127,6 +125,8 @@
 │       └── DatabaseSeeder.php
 ├── package.json
 ├── phpunit.xml
+├── policyfiles
+│   └── Supervisor_Override_Semantics.md
 ├── public
 │   ├── favicon.ico
 │   ├── index.php
@@ -189,9 +189,12 @@
 │   ├── CreatesApplication.php
 │   ├── Feature
 │   │   ├── ExampleTest.php
-│   │   └── Fulfillment
-│   │       ├── OfflineReconciliationTest.php
-│   │       └── QrScanTest.php
+│   │   ├── Fulfillment
+│   │   │   ├── OfflineReconciliationTest.php
+│   │   │   └── QrScanTest.php
+│   │   └── Stock
+│   │       ├── StockCommitTest.php
+│   │       └── StockReservationTest.php
 │   ├── Helpers
 │   │   └── FulfillmentTestHelper.php
 │   ├── TestCase.php

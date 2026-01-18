@@ -51,23 +51,23 @@
 
 ---
 
-### 3. Stock Reservation & Deduction Engine
+                      ### 3. Stock Reservation & Deduction Engine
 
-**Design Resolution**
-Separate **reservation**, **commit**, and **rollback** phases.
+                      **Design Resolution**
+                      Separate **reservation**, **commit**, and **rollback** phases.
 
-**Tasks**
+                      **Tasks**
 
-* Atomic reservation at sale creation
-* Deduction only at fulfillment release
-* Rollback on cancellation / rejection
-* Warehouse-level locking strategy
-* Guard against cross-warehouse contamination
+                      * Atomic reservation at sale creation
+                      * Deduction only at fulfillment release
+                      * Rollback on cancellation / rejection
+                      * Warehouse-level locking strategy
+                      * Guard against cross-warehouse contamination
 
-**Outcome**
+                      **Outcome**
 
-* Accurate inventory under concurrency
-* ERP-grade stock integrity
+                      * Accurate inventory under concurrency
+                      * ERP-grade stock integrity
 
 ---
 

@@ -1,193 +1,149 @@
-# CONTINUITY MAP
+# CONTINUITY MAP — SYSTEM INVARIANTS
 
-## Purpose
+This document defines the **non-negotiable rules** that govern the behavior of the system.
+These rules are enforced by code and protected by automated tests.
 
-This document defines **continuity rules** that must hold across code, database schema, tests, and operational behavior.
+Where conflicts arise:
 
-It exists to prevent:
-
-* Silent contract drift
-* Ambiguous ownership of state
-* Hidden coupling between services
-* Nondeterministic behavior that breaks tests
-
-Any violation of this map is a **system-level defect**.
+* **This document overrides all other documentation**
+* Including `PROJECT_CONTEXT.md`, comments, or developer assumptions
 
 ---
 
-## Canonical Vocabulary (Enforced)
+## 1. Inventory Lifecycle Invariants
 
-| Term        | Meaning                        | Allowed Usage                          |
-| ----------- | ------------------------------ | -------------------------------------- |
-| `state`     | Persisted lifecycle truth      | Database, domain logic, state machines |
-| `status`    | Transport / response indicator | API responses only                     |
-| Lifecycle   | Controlled state progression   | State machines only                    |
-| Side effect | Non-state operation            | Services only                          |
+Inventory handling is governed by a strict, multi-phase lifecycle. These phases **must never be collapsed or reordered**.
 
-**Rule:** `status` MUST NOT appear in persistence or domain logic.
+### 1.1 Reservation Phase
 
----
+**Trigger:** Sale creation
 
-## Offline Fulfillment Continuity
+**Invariants:**
 
-### Lifecycle Authority
+* Physical stock quantity (`warehouse_stock.quantity`) MUST NOT change
+* Only `warehouse_stock.reserved_quantity` may increase
+* Reservation MUST fail if available stock is insufficient
+* Reservation MUST be atomic with sale creation
 
-* `OfflineFulfillmentStateMachine` is the **only component** allowed to:
-
-  * Read lifecycle truth
-  * Validate transitions
-  * Mutate `state`
-  * Emit lifecycle audit events
-
-No service, controller, job, or test helper may bypass this authority.
+Any physical stock deduction during reservation is a **critical violation**.
 
 ---
 
-### Allowed State Transitions
+### 1.2 Commitment Phase
+
+**Trigger:** Fulfillment state transitions to `released`
+
+**Invariants:**
+
+* Stock MUST be deducted exactly once per fulfillment
+* Reserved stock MUST be cleared before or during physical deduction
+* Commitment MUST be idempotent
+* Commitment MUST be ledger-driven
+
+**Source of Truth:**
 
 ```
-pending  → approved → reconciled
-pending  → rejected
+stock_movements(reference_type, reference_id)
 ```
 
-* `reconciled` and `rejected` are terminal
-* Backward or repeated transitions are forbidden
+If a ledger entry exists, commitment MUST NOT run again.
 
 ---
 
-### Persistence Rules
+### 1.3 Reconciliation Phase
 
-* `state` is the only persisted lifecycle column
-* `status` may exist historically but must never be mutated
-* Model-level guards must prevent `status` mutation
-* Guards must trigger on **intentional mutation only** (`isDirty('status')`)
+**Trigger:** Fulfillment state transitions to `reconciled`
 
----
+**Invariants:**
 
-### Audit Continuity
+* Reconciliation MUST NOT mutate stock
+* Reconciliation MUST be auditable
+* Reconciliation is terminal
 
-* Lifecycle audit events are emitted **once and only once**
-* Audit action: `offline_fulfillment_reconciled`
-* Audit emission occurs **inside the state machine**
-* Services must pass metadata, not emit audits
-
-Duplicate lifecycle audits are forbidden.
+Any stock mutation during reconciliation is a **critical violation**.
 
 ---
 
-### Side Effect Boundary
+## 2. Ledger Doctrine
 
-* `FulfillmentService::fulfillOffline()`:
+The `stock_movements` table is the **single source of truth** for all stock mutations.
 
-  * Performs stock deduction only
-  * Must not mutate lifecycle state
-  * Must not emit lifecycle audit logs
+**Rules:**
 
-* Stock mutations:
-
-  * Must pass through `StockService`
-  * Must be idempotent
-  * Must be auditable
+* No stock deduction may occur without a corresponding ledger entry
+* Ledger entries define idempotency
+* Flags, counters, or booleans MUST NOT replace ledger checks
 
 ---
 
-## QR / Online Fulfillment Continuity
+## 3. Fulfillment State Machine Invariants
 
-### Token Guarantees
+### 3.1 Warehouse Fulfillment
 
-* Fulfillment tokens are:
-
-  * Single-use
-  * Row-locked during processing
-  * Invalid after use or expiry
-
-Parallel or replay execution must fail deterministically.
-
----
-
-### Online Fulfillment Lifecycle
+**Valid States:**
 
 ```
 pending → approved → released → reconciled
 ```
 
-* Transitions are forward-only
-* Final states are terminal
-* Partial execution results in a conflicted fulfillment
+**Invariants:**
+
+* Only `released` may trigger stock commitment
+* `reconciled` and `conflicted` are terminal
+* State machines MUST NOT mutate stock directly
 
 ---
 
-### Online vs Offline Separation
+### 3.2 Offline Fulfillment
 
-* Online fulfillment uses `FulfillmentStateMachine`
-* Offline fulfillment uses `OfflineFulfillmentStateMachine`
-* These machines are independent
-* No shared lifecycle fields
-* No cross-machine transitions
+**Valid States:**
 
----
+```
+pending → approved → reconciled
+```
 
-## Stock Continuity
+**Invariants:**
 
-* Stock is a ledger, not a counter
-* `StockService` is the sole authority
-* Each stock mutation must:
-
-  * Create a movement record
-  * Be idempotent
-  * Be scoped to a business + warehouse + reference
+* Supervisor override MUST be enforced when required
+* Reconciliation MUST be idempotent
+* Reconciliation MUST emit an audit log
+* Stock deduction MUST be ledger-guarded
 
 ---
 
-## Authorization Continuity
+## 4. Audit Invariants
 
-* Authorization is explicit and enforced at boundaries
-* Required permissions:
-
-  * `warehouse.fulfill`
-  * `offline.fulfillment.approve`
-
-No implicit trust or role inference is allowed.
+* All stock mutations MUST be auditable via the ledger
+* Business events MUST be logged to `audit_logs`
+* Conflicts MUST be logged and MUST NOT silently fail
 
 ---
 
-## Testing Continuity
+## 5. Idempotency Guarantees
 
-Tests are part of the continuity contract.
-
-* Feature tests define invariants
-* Tests must assume deterministic behavior
-* Any change causing:
-
-  * Duplicate side effects
-  * Ambiguous state
-  * Multiple audits per lifecycle
-
-must fail tests immediately.
+| Operation              | Idempotent | Enforcement Mechanism  |
+| ---------------------- | ---------- | ---------------------- |
+| Stock reservation      | ❌          | Transaction boundary   |
+| Stock commitment       | ✅          | Ledger uniqueness      |
+| Fulfillment release    | ✅          | Ledger existence check |
+| Offline reconciliation | ✅          | Ledger + state guard   |
 
 ---
 
-## Change Discipline
+## 6. Enforcement
 
-Any change that affects:
+These invariants are enforced by:
 
-* Lifecycle semantics
-* Audit behavior
-* State naming
-* Stock mutation rules
+* Database constraints
+* Explicit state machines
+* Ledger checks
+* Automated tests
 
-MUST update:
+If any invariant is violated:
 
-1. `PROJECT_CONTEXT.md`
-2. This `CONTINUITY_MAP.md`
-3. Relevant feature tests
-
-Failure to update all three constitutes a **continuity violation**.
+> **The implementation is incorrect and MUST be fixed.**
 
 ---
 
-## Final Assertion
-
-This continuity map is **binding**.
-
-Code that contradicts it is incorrect, even if it appears to work.
+**Document Status:** FINAL
+  
