@@ -73,33 +73,33 @@
 
 ## 🟠 PRIORITY 2 — FINANCIAL CORE (ULTIMATEPOS PARITY + ENTERPRISE UPGRADE)
 
-### 4. Ledger System (Double-Entry Accounting Engine)
+                      ### 4. Ledger System (Double-Entry Accounting Engine)
 
-**Design Resolution**
-Every financial event posts immutable debit/credit entries.
+                      **Design Resolution**
+                      Every financial event posts immutable debit/credit entries.
 
-**Tasks**
+                      **Tasks**
 
-* Chart of Accounts (COA)
+                      * Chart of Accounts (COA)
 
-  * Assets, Liabilities, Equity, Revenue, Expenses
-* Ledger entries table:
+                        * Assets, Liabilities, Equity, Revenue, Expenses
+                      * Ledger entries table:
 
-  * debit, credit, account_id, source_type, source_id
-* Posting rules for:
+                        * debit, credit, account_id, source_type, source_id
+                      * Posting rules for:
 
-  * Sales
-  * Purchases
-  * Returns
-  * Expenses
-  * Cash movements
-* Soft-lock posted entries (no delete/update)
-* Full audit attribution (user, device, timestamp)
+                        * Sales
+                        * Purchases
+                        * Returns
+                        * Expenses
+                        * Cash movements
+                      * Soft-lock posted entries (no delete/update)
+                      * Full audit attribution (user, device, timestamp)
 
-**Outcome**
+                      **Outcome**
 
-* Enables P&L, balance sheet, audit compliance
-* Hard separation between operations and finance
+                      * Enables P&L, balance sheet, audit compliance
+                      * Hard separation between operations and finance
 
 ---
 

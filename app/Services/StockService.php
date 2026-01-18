@@ -12,12 +12,6 @@ class StockService
 {
     /**
      * Reserve stock for a sale (INTENT ONLY).
-     *
-     * - Counter-based
-     * - Transactional
-     * - Row-locked
-     * - NO stock movements
-     * - NO audit logs
      */
     public function reserve(
         int $warehouseId,
@@ -56,10 +50,6 @@ class StockService
 
     /**
      * Increase stock (purchase, transfer in, opening).
-     *
-     * FACTUAL mutation:
-     * - Writes ledger
-     * - Emits audit
      */
     public function increase(
         Warehouse $warehouse,
@@ -74,13 +64,15 @@ class StockService
             );
         }
 
-        // HARD SOURCE VALIDATION
+        // HARD SOURCE VALIDATION - UPDATED TO ALLOW 'purchase'
         if (!in_array($source, [
+            'purchase',
             'purchase_receipt',
             'warehouse_fulfillment',
+            'sale_return',
         ], true)) {
             throw new \DomainException(
-                'Stock increase is only allowed via warehouse receipt or fulfillment.'
+                'Stock increase is only allowed via purchase, warehouse receipt or fulfillment.'
             );
         }
 
@@ -106,12 +98,6 @@ class StockService
                     'created_at'   => now(),
                     'updated_at'   => now(),
                 ]);
-
-                $stock = DB::table('warehouse_stock')
-                    ->where('warehouse_id', $warehouse->id)
-                    ->where('product_id', $productId)
-                    ->lockForUpdate()
-                    ->first();
             }
 
             DB::table('warehouse_stock')
@@ -130,7 +116,7 @@ class StockService
                 'type'           => 'purchase',
                 'reference_type' => $source,
                 'reference_id'   => $sourceId,
-                'created_by'     => auth()->id(),
+                'created_by'     => auth()->id() ?? 1,
                 'created_at'     => now(),
                 'updated_at'     => now(),
             ]);
@@ -151,14 +137,6 @@ class StockService
 
     /**
      * Decrease stock (sale, transfer out).
-     *
-     * FACTUAL mutation:
-     * - Writes ledger
-     * - Emits audit
-     *
-     * NOTE:
-     * Reserved stock clearance is handled by the caller
-     * (fulfillment release), not here.
      */
     public static function decrease(
         int $businessId,

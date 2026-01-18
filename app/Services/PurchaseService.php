@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use App\Services\StockService;
 use App\Services\AuditService;
+use App\Services\LedgerService; // Added
+use App\Models\Purchase; // Added
+use App\Models\Product; // Added
 
 class PurchaseService
 {
@@ -43,19 +46,30 @@ class PurchaseService
                     'updated_at'  => now(),
                 ]);
 
-                StockService::increase(
-                    $user->business_id,
-                    $data['warehouse_id'],
-                    $item['product_id'],
-                    $item['quantity'],
-                    'purchase',
-                    'purchases',
-                    $purchaseId,
-                    $user->id
+                // NEW: Update Product Cost Price
+                // This is vital so the SaleService knows the value of the stock for COGS
+                Product::where('id', $item['product_id'])
+                    ->update(['cost_price' => $item['unit_cost']]);
+// RIGHT: Fetch the model and pass it
+            // Fetch the warehouse model
+                $warehouse = \App\Models\Warehouse::find($data['warehouse_id']);
+
+                app(StockService::class)->increase(
+                    $warehouse,             // 1. Warehouse Object
+                    $item['product_id'],    // 2. Product ID
+                    $item['quantity'],       // 3. Qty
+                    'purchase',             // 4. Source Type (string)
+                    $purchaseId,            // 5. Source ID (int) - MUST BE HERE
+                    'purchases',            // 6. Source Table (string)
+                    $user->id               // 7. User ID
                 );
             }
 
-            // 3. Audit
+            // 3. NEW: Financial Posting to General Ledger
+            $purchase = Purchase::find($purchaseId);
+            self::recordFinancialEntry($purchase);
+
+            // 4. Audit
             AuditService::log(
                 'purchase_received',
                 'procurement',
@@ -69,6 +83,37 @@ class PurchaseService
 
             return $purchaseId;
         });
+    }
+
+    /**
+     * Post the purchase to the Ledger.
+     */
+    protected static function recordFinancialEntry($purchase)
+    {
+        $ledgerService = app(LedgerService::class);
+        $businessId = $purchase->business_id;
+
+        $entries = [
+            // DEBIT Inventory Asset (Asset increases)
+            [
+                'account_code' => $ledgerService->getCode($businessId, 'Inventory Asset'),
+                'debit' => $purchase->total,
+                'credit' => 0
+            ],
+            // CREDIT Accounts Payable (Liability increases - you owe the supplier)
+            [
+                'account_code' => $ledgerService->getCode($businessId, 'Accounts Payable'),
+                'debit' => 0,
+                'credit' => $purchase->total
+            ]
+        ];
+
+        $ledgerService->post(
+            $businessId,
+            $entries,
+            $purchase,
+            "Stock purchase received. Ref: #{$purchase->purchase_number}"
+        );
     }
 
     private static function generatePurchaseNumber(): string

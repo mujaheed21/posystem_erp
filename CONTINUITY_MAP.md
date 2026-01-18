@@ -1,10 +1,9 @@
-# CONTINUITY MAP — SYSTEM INVARIANTS
+# CONTINUITY_MAP — SYSTEM INVARIANTS
 
 This document defines the **non-negotiable rules** that govern the behavior of the system.
 These rules are enforced by code and protected by automated tests.
 
 Where conflicts arise:
-
 * **This document overrides all other documentation**
 * Including `PROJECT_CONTEXT.md`, comments, or developer assumptions
 
@@ -14,136 +13,92 @@ Where conflicts arise:
 
 Inventory handling is governed by a strict, multi-phase lifecycle. These phases **must never be collapsed or reordered**.
 
-### 1.1 Reservation Phase
+### 1.1 Reservation Phase (Sale Intent)
+* Physical stock quantity (`warehouse_stock.quantity`) MUST NOT change.
+* Only `warehouse_stock.reserved_quantity` may increase.
+* Reservation MUST be atomic with sale creation.
 
-**Trigger:** Sale creation
+### 1.2 Commitment Phase (Fulfillment Execution)
+* Stock MUST be deducted exactly once per fulfillment.
+* Commitment MUST be ledger-driven and idempotent.
 
-**Invariants:**
-
-* Physical stock quantity (`warehouse_stock.quantity`) MUST NOT change
-* Only `warehouse_stock.reserved_quantity` may increase
-* Reservation MUST fail if available stock is insufficient
-* Reservation MUST be atomic with sale creation
-
-Any physical stock deduction during reservation is a **critical violation**.
-
----
-
-### 1.2 Commitment Phase
-
-**Trigger:** Fulfillment state transitions to `released`
-
-**Invariants:**
-
-* Stock MUST be deducted exactly once per fulfillment
-* Reserved stock MUST be cleared before or during physical deduction
-* Commitment MUST be idempotent
-* Commitment MUST be ledger-driven
-
-**Source of Truth:**
-
-```
-stock_movements(reference_type, reference_id)
-```
-
-If a ledger entry exists, commitment MUST NOT run again.
+### 1.3 Recovery Phase (Returns/Reversals)
+* Returns MUST restore physical stock (`quantity`) via `StockService`.
+* Returns MUST NOT delete original sale records; they MUST create reversal entries.
+* Returns MUST be ledger-guarded to prevent double-restoration.
 
 ---
 
-### 1.3 Reconciliation Phase
+## 2. Financial Ledger Doctrine (NEW)
 
-**Trigger:** Fulfillment state transitions to `reconciled`
+The `ledger_entries` table is the **ultimate source of truth** for the financial state of the business.
 
-**Invariants:**
+### 2.1 Double-Entry Invariant
+* Every financial event MUST post at least one Debit and one Credit.
+* **The sum of Debits MUST equal the sum of Credits for every transaction.**
+* Out-of-balance postings MUST be rejected at the database transaction level.
 
-* Reconciliation MUST NOT mutate stock
-* Reconciliation MUST be auditable
-* Reconciliation is terminal
 
-Any stock mutation during reconciliation is a **critical violation**.
 
----
-
-## 2. Ledger Doctrine
-
-The `stock_movements` table is the **single source of truth** for all stock mutations.
-
-**Rules:**
-
-* No stock deduction may occur without a corresponding ledger entry
-* Ledger entries define idempotency
-* Flags, counters, or booleans MUST NOT replace ledger checks
+### 2.2 Immutability Invariant
+* Financial ledger entries MUST NOT be updated or deleted.
+* Errors in posting MUST be corrected via **Reversal Postings** (New entries that offset the error).
+* This ensures a permanent, tamper-proof audit trail.
 
 ---
 
-## 3. Fulfillment State Machine Invariants
+## 3. Posting Rules (Domain Invariants)
 
-### 3.1 Warehouse Fulfillment
-
-**Valid States:**
-
-```
-pending → approved → released → reconciled
-```
-
-**Invariants:**
-
-* Only `released` may trigger stock commitment
-* `reconciled` and `conflicted` are terminal
-* State machines MUST NOT mutate stock directly
+| Event | Debit Account | Credit Account |
+| :--- | :--- | :--- |
+| **Sale (On Credit)** | Accounts Receivable | Sales Revenue |
+| **Purchase (On Credit)** | Inventory Asset | Accounts Payable |
+| **Payment (to Supplier)**| Accounts Payable | Cash/Bank Asset |
+| **Sale Return** | Sales Revenue | Accounts Receivable |
 
 ---
 
-### 3.2 Offline Fulfillment
+## 4. Fulfillment & Reconciliation Invariants
 
-**Valid States:**
+### 4.1 State Machine Integrity
+* **Warehouse Fulfillment**: `pending → approved → released → reconciled`.
+* **Offline Fulfillment**: `pending → approved → reconciled`.
+* Terminal states (`reconciled`, `conflicted`) MUST NOT be reversed.
 
-```
-pending → approved → reconciled
-```
-
-**Invariants:**
-
-* Supervisor override MUST be enforced when required
-* Reconciliation MUST be idempotent
-* Reconciliation MUST emit an audit log
-* Stock deduction MUST be ledger-guarded
+### 4.2 Offline Reconciliation
+* Supervisor override MUST be enforced for cryptographic signature failures.
+* Reconciliation MUST be idempotent: Checked against both the `fulfillment_status` and `ledger_entries`.
 
 ---
 
-## 4. Audit Invariants
+## 5. Audit & Traceability
 
-* All stock mutations MUST be auditable via the ledger
-* Business events MUST be logged to `audit_logs`
-* Conflicts MUST be logged and MUST NOT silently fail
+* Every Ledger entry MUST link to a `source_type` and `source_id`.
+* Every Stock movement MUST link to an `audit_logs` entry.
+* System-wide "Hard Separation": Operations (Services) propose values; the Ledger Engine validates and locks them.
 
 ---
 
-## 5. Idempotency Guarantees
+## 6. Idempotency Guarantees (Updated)
 
 | Operation              | Idempotent | Enforcement Mechanism  |
 | ---------------------- | ---------- | ---------------------- |
 | Stock reservation      | ❌          | Transaction boundary   |
+| Financial Posting      | ✅          | Source-Type/ID unique check |
 | Stock commitment       | ✅          | Ledger uniqueness      |
-| Fulfillment release    | ✅          | Ledger existence check |
-| Offline reconciliation | ✅          | Ledger + state guard   |
+| Sales Return           | ✅          | Audit log + Ledger guard |
 
 ---
 
-## 6. Enforcement
+## 7. Enforcement
 
 These invariants are enforced by:
-
-* Database constraints
-* Explicit state machines
-* Ledger checks
-* Automated tests
+* Database foreign key constraints.
+* Ledger balance validation logic.
+* Automated Integration Tests (Fulfillment & Financials).
 
 If any invariant is violated:
-
 > **The implementation is incorrect and MUST be fixed.**
 
 ---
-
-**Document Status:** FINAL
-  
+**Document Status: FINAL (Updated 2026-01-18)**

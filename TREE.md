@@ -11,10 +11,13 @@
 │   │   └── Middleware
 │   │       └── EnsureWarehouseAccess.php
 │   ├── Models
+│   │   ├── Account.php
 │   │   ├── Business.php
 │   │   ├── BusinessLocation.php
+│   │   ├── LedgerEntry.php
 │   │   ├── Module.php
 │   │   ├── OfflineFulfillmentPending.php
+│   │   ├── Party.php
 │   │   ├── Permission.php
 │   │   ├── Product.php
 │   │   ├── Purchase.php
@@ -34,10 +37,12 @@
 │       ├── FulfillmentService.php
 │       ├── FulfillmentStateMachine.php
 │       ├── FulfillmentTokenService.php
+│       ├── LedgerService.php
 │       ├── OfflineFulfillmentStateMachine.php
 │       ├── OfflineQrSigner.php
 │       ├── OfflineQrVerifier.php
 │       ├── OfflineReconciliationService.php
+│       ├── PaymentService.php
 │       ├── PurchaseReceiptService.php
 │       ├── PurchaseService.php
 │       ├── SaleService.php
@@ -118,10 +123,14 @@
 │   │   ├── 2026_01_09_091317_add_idempotency_guard_to_stock_movements.php
 │   │   ├── 2026_01_09_102332_add_state_machine_to_offline_fulfillment_pendings_table.php
 │   │   ├── 2026_01_10_230942_create_supervisor_overrides_table.php
-│   │   └── 2026_01_10_235454_add_requires_override_to_offline_fulfillment_pendings_table.php
+│   │   ├── 2026_01_10_235454_add_requires_override_to_offline_fulfillment_pendings_table.php
+│   │   ├── 2026_01_18_192056_create_accounts_table.php
+│   │   ├── 2026_01_18_192203_create_ledger_entries_table.php
+│   │   └── 2026_01_18_205238_create_payments_table.php
 │   ├── schema
 │   │   └── mysql-schema.sql
 │   └── seeders
+│       ├── ChartOfAccountsSeeder.php
 │       └── DatabaseSeeder.php
 ├── package.json
 ├── phpunit.xml
@@ -192,6 +201,8 @@
 │   │   ├── Fulfillment
 │   │   │   ├── OfflineReconciliationTest.php
 │   │   │   └── QrScanTest.php
+│   │   ├── PurchaseLedgerTest.php
+│   │   ├── SalesReturnLedgerTest.php
 │   │   └── Stock
 │   │       ├── StockCommitTest.php
 │   │       └── StockReservationTest.php
@@ -1282,3 +1293,5 @@
 │           ├── composer.json
 │           └── src
 └── vite.config.js
+
+444 directories, 852 files
