@@ -22,7 +22,7 @@ class ReportController extends Controller
     /**
      * Get the Profit & Loss Statement via API
      * * This endpoint computes Revenue, COGS, and Net Profit directly from the Ledger.
-     * GET /api/v1/reports/profit-loss?start_date=2026-01-01&end_date=2026-01-31&location_id=1
+     * GET /api/v1/reports/profit-loss?start_date=2026-01-01&end_date=2026-01-31
      */
     public function getProfitLoss(Request $request)
     {
@@ -41,16 +41,17 @@ class ReportController extends Controller
             $request->location_id
         );
 
+        // We return the 'data' key from the service result directly 
+        // to satisfy the test's expectation of data.revenue, data.cogs, etc.
         return response()->json([
             'status' => 'success',
-            'data'   => $report
+            'data'   => $report['data'],
+            'metadata' => $report['metadata'] ?? null
         ]);
     }
 
     /**
      * Get Top Selling Products with Margin Analysis
-     * * Provides enterprise-level insight into which products generate the most profit.
-     * GET /api/v1/reports/top-products?start_date=2026-01-01&end_date=2026-01-31
      */
     public function getTopProducts(Request $request)
     {

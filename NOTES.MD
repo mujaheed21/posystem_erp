@@ -125,26 +125,26 @@
 
 ---
 
-### 6. Cash Register & Expense Engine
+                      ### 6. Cash Register & Expense Engine
 
-**Design Resolution**
-Cash movement is a first-class ledger event.
+                      **Design Resolution**
+                      Cash movement is a first-class ledger event.
 
-**Tasks**
+                      **Tasks**
 
-* Register open / close lifecycle
-* Expected vs actual cash reconciliation
-* Cash variance detection
-* Cash-in / cash-out entries
-* Expense categories & approvals
-* Automatic ledger posting
+                      * Register open / close lifecycle
+                      * Expected vs actual cash reconciliation
+                      * Cash variance detection
+                      * Cash-in / cash-out entries
+                      * Expense categories & approvals
+                      * Automatic ledger posting
 
-**Outcome**
+                      **Outcome**
 
-* Retail + warehouse financial control
-* Eliminates “dark cash” scenarios
+                      * Retail + warehouse financial control
+                      * Eliminates “dark cash” scenarios
 
----
+                      ---
 
 ## 🟡 PRIORITY 3 — SALES & REPORTING INTELLIGENCE
 

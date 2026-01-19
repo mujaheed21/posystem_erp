@@ -14,6 +14,9 @@
 │   │   ├── Account.php
 │   │   ├── Business.php
 │   │   ├── BusinessLocation.php
+│   │   ├── CashRegister.php
+│   │   ├── Expense.php
+│   │   ├── ExpenseCategory.php
 │   │   ├── LedgerEntry.php
 │   │   ├── Module.php
 │   │   ├── OfflineFulfillmentPending.php
@@ -24,7 +27,13 @@
 │   │   ├── Role.php
 │   │   ├── Sale.php
 │   │   ├── SaleItem.php
+│   │   ├── StockAdjustment.php
+│   │   ├── StockAdjustmentItem.php
+│   │   ├── StockBatch.php
 │   │   ├── StockMovement.php
+│   │   ├── StockThreshold.php
+│   │   ├── StockTransfer.php
+│   │   ├── StockTransferItem.php
 │   │   ├── SupervisorOverride.php
 │   │   ├── User.php
 │   │   ├── Warehouse.php
@@ -34,6 +43,8 @@
 │   │   └── AppServiceProvider.php
 │   └── Services
 │       ├── AuditService.php
+│       ├── CashRegisterService.php
+│       ├── ExpenseService.php
 │       ├── FulfillmentService.php
 │       ├── FulfillmentStateMachine.php
 │       ├── FulfillmentTokenService.php
@@ -45,11 +56,17 @@
 │       ├── PaymentService.php
 │       ├── PurchaseReceiptService.php
 │       ├── PurchaseService.php
+│       ├── ReportService.php
 │       ├── SaleService.php
+│       ├── StockAdjustmentService.php
+│       ├── StockAlertService.php
 │       ├── StockService.php
+│       ├── StockTransferService.php
 │       ├── SupervisorOverrideAuthService.php
 │       ├── SupervisorOverrideService.php
-│       └── TransferService.php
+│       ├── SupplierService.php
+│       ├── TransferService.php
+│       └── ValuationService.php
 ├── artisan
 ├── bootstrap
 │   ├── app.php
@@ -126,7 +143,20 @@
 │   │   ├── 2026_01_10_235454_add_requires_override_to_offline_fulfillment_pendings_table.php
 │   │   ├── 2026_01_18_192056_create_accounts_table.php
 │   │   ├── 2026_01_18_192203_create_ledger_entries_table.php
-│   │   └── 2026_01_18_205238_create_payments_table.php
+│   │   ├── 2026_01_18_205238_create_payments_table.php
+│   │   ├── 2026_01_18_224828_create_stock_batches_table.php
+│   │   ├── 2026_01_19_005107_add_valuation_method_to_businesses_table.php
+│   │   ├── 2026_01_19_020613_create_expense_categories_table.php
+│   │   ├── 2026_01_19_021051_create_cash_registers_table.php
+│   │   ├── 2026_01_19_022050_create_expenses_table.php
+│   │   ├── 2026_01_19_022956_add_reorder_level_to_products_table.php
+│   │   ├── 2026_01_19_132424_add_batch_id_to_stock_transfer_items.php
+│   │   ├── 2026_01_19_152627_add_verification_token_to_stock_transfers.php
+│   │   ├── 2026_01_19_181704_create_stock_adjustments_table.php
+│   │   ├── 2026_01_19_181938_create_stock_adjustment_items_table.php
+│   │   ├── 2026_01_19_191024_create_stock_thresholds_table.php
+│   │   ├── 2026_01_19_193226_create_supplier_payments_table.php
+│   │   └── 2026_01_19_193237_add_payment_status_to_purchases.php
 │   ├── schema
 │   │   └── mysql-schema.sql
 │   └── seeders
@@ -149,6 +179,7 @@
 │   └── views
 │       └── welcome.blade.php
 ├── routes
+│   ├── api.php
 │   ├── console.php
 │   └── web.php
 ├── storage
@@ -197,6 +228,15 @@
 ├── tests
 │   ├── CreatesApplication.php
 │   ├── Feature
+│   │   ├── Api
+│   │   │   ├── CashRegisterReconciliationTest.php
+│   │   │   ├── InventoryValuationTest.php
+│   │   │   ├── NetProfitTest.php
+│   │   │   ├── ProfitLossReportTest.php
+│   │   │   ├── StockAdjustmentTest.php
+│   │   │   ├── StockAlertTest.php
+│   │   │   ├── StockTransferTest.php
+│   │   │   └── SupplierPaymentTest.php
 │   │   ├── ExampleTest.php
 │   │   ├── Fulfillment
 │   │   │   ├── OfflineReconciliationTest.php
@@ -213,6 +253,14 @@
 │       └── ExampleTest.php
 ├── vendor
 │   ├── autoload.php
+│   ├── bacon
+│   │   └── bacon-qr-code
+│   │       ├── LICENSE
+│   │       ├── README.md
+│   │       ├── composer.json
+│   │       ├── phpunit.xml.dist
+│   │       ├── src
+│   │       └── test
 │   ├── bin
 │   │   ├── carbon
 │   │   ├── carbon.bat
@@ -259,6 +307,12 @@
 │   │   ├── installed.json
 │   │   ├── installed.php
 │   │   └── platform_check.php
+│   ├── dasprid
+│   │   └── enum
+│   │       ├── LICENSE
+│   │       ├── README.md
+│   │       ├── composer.json
+│   │       └── src
 │   ├── dflydev
 │   │   └── dot-access-data
 │   │       ├── CHANGELOG.md
@@ -778,6 +832,18 @@
 │   │       ├── SECURITY.md
 │   │       ├── composer.json
 │   │       └── src
+│   ├── simplesoftwareio
+│   │   └── simple-qrcode
+│   │       ├── CHANGELOG.md
+│   │       ├── CONTRIBUTING.md
+│   │       ├── LICENSE
+│   │       ├── README.md
+│   │       ├── SECURITY.md
+│   │       ├── composer.json
+│   │       ├── docs
+│   │       ├── phpunit.xml
+│   │       ├── src
+│   │       └── tests
 │   ├── spatie
 │   │   └── laravel-permission
 │   │       ├── LICENSE.md
@@ -1294,4 +1360,4 @@
 │           └── src
 └── vite.config.js
 
-444 directories, 852 files
+457 directories, 905 files

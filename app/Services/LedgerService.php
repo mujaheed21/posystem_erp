@@ -10,6 +10,7 @@ class LedgerService
 {
     /**
      * Post a balanced double-entry transaction.
+     * Ensures the fundamental accounting equation: Assets = Liabilities + Equity
      */
     public function post(int $businessId, array $entries, $source = null, string $description = null)
     {
@@ -18,11 +19,13 @@ class LedgerService
             $totalCredit = collect($entries)->sum('credit');
 
             // Verification: Debits must equal Credits
+            // We use a small epsilon for float comparison safety
             if (abs($totalDebit - $totalCredit) > 0.0001) {
                 throw new \Exception("Accounting Imbalance: Debits ($totalDebit) != Credits ($totalCredit)");
             }
 
             foreach ($entries as $entry) {
+                // Find account by code - This is why setupBusinessLedger must be accurate
                 $account = Account::where('business_id', $businessId)
                     ->where('code', $entry['account_code'])
                     ->firstOrFail();
@@ -36,7 +39,8 @@ class LedgerService
                     'source_id'   => $source ? $source->id : null,
                     'description' => $description,
                     'user_id'     => auth()->id() ?? 1, 
-                    'posted_at'   => now(),
+                    // We map the transaction date to posted_at since that's your schema's time column
+                    'posted_at'   => $entry['date'] ?? now(),
                 ]);
             }
         });
@@ -44,11 +48,20 @@ class LedgerService
 
     /**
      * Helper to find an account code by its seeded name.
+     * Used by SaleService to find 'Sales', 'Inventory', etc.
      */
     public function getCode(int $businessId, string $name): string
     {
-        return Account::where('business_id', $businessId)
+        $account = Account::where('business_id', $businessId)
             ->where('name', $name)
-            ->firstOrFail()->code;
+            ->first();
+
+        if (!$account) {
+            throw new \Illuminate\Database\Eloquent\ModelNotFoundException(
+                "System Account '{$name}' not found for Business ID: {$businessId}. Please ensure the Ledger is seeded."
+            );
+        }
+
+        return $account->code;
     }
 }
