@@ -103,25 +103,25 @@
 
 ---
 
-### 5. Profit & Loss Analytics Engine
+                      ### 5. Profit & Loss Analytics Engine
 
-**Design Resolution**
-Computed from ledger + inventory valuation, never raw sales.
+                      **Design Resolution**
+                      Computed from ledger + inventory valuation, never raw sales.
 
-**Tasks**
+                      **Tasks**
 
-* Revenue aggregation (net of returns)
-* COGS calculation (FIFO or weighted average)
-* Gross profit computation
-* Expense aggregation
-* Net profit computation
-* Period filters (daily, monthly, custom)
-* Location-aware and consolidated P&L
+                      * Revenue aggregation (net of returns)
+                      * COGS calculation (FIFO or weighted average)
+                      * Gross profit computation
+                      * Expense aggregation
+                      * Net profit computation
+                      * Period filters (daily, monthly, custom)
+                      * Location-aware and consolidated P&L
 
-**Outcome**
+                      **Outcome**
 
-* UltimatePOS parity achieved
-* Enterprise-level financial insight
+                      * UltimatePOS parity achieved
+                      * Enterprise-level financial insight
 
 ---
 

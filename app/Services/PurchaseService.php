@@ -6,9 +6,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use App\Services\StockService;
 use App\Services\AuditService;
-use App\Services\LedgerService; // Added
-use App\Models\Purchase; // Added
-use App\Models\Product; // Added
+use App\Services\LedgerService;
+use App\Models\Purchase;
+use App\Models\Product;
+use App\Models\Warehouse;
 
 class PurchaseService
 {
@@ -33,7 +34,9 @@ class PurchaseService
                 'updated_at'     => now(),
             ]);
 
-            // 2. Create purchase items & increase stock
+            $warehouse = Warehouse::find($data['warehouse_id']);
+
+            // 2. Create purchase items, stock batches & increase stock
             foreach ($data['items'] as $item) {
 
                 DB::table('purchase_items')->insert([
@@ -46,26 +49,38 @@ class PurchaseService
                     'updated_at'  => now(),
                 ]);
 
-                // NEW: Update Product Cost Price
-                // This is vital so the SaleService knows the value of the stock for COGS
+                // NEW: Create Stock Batch for FIFO/Average Valuation
+                // This tracks exactly how much of this specific 'lot' is left.
+                DB::table('stock_batches')->insert([
+                    'business_id'        => $user->business_id,
+                    'warehouse_id'       => $data['warehouse_id'],
+                    'product_id'         => $item['product_id'],
+                    'purchase_id'        => $purchaseId,
+                    'quantity_received'  => $item['quantity'],
+                    'quantity_remaining' => $item['quantity'],
+                    'unit_cost'          => $item['unit_cost'],
+                    'received_at'        => now(),
+                    'created_at'         => now(),
+                    'updated_at'         => now(),
+                ]);
+
+                // Update Product Cost Price (Used as a fallback/quick reference)
                 Product::where('id', $item['product_id'])
                     ->update(['cost_price' => $item['unit_cost']]);
-// RIGHT: Fetch the model and pass it
-            // Fetch the warehouse model
-                $warehouse = \App\Models\Warehouse::find($data['warehouse_id']);
 
+                // Increase Physical Stock
                 app(StockService::class)->increase(
-                    $warehouse,             // 1. Warehouse Object
-                    $item['product_id'],    // 2. Product ID
-                    $item['quantity'],       // 3. Qty
-                    'purchase',             // 4. Source Type (string)
-                    $purchaseId,            // 5. Source ID (int) - MUST BE HERE
-                    'purchases',            // 6. Source Table (string)
-                    $user->id               // 7. User ID
+                    $warehouse,             
+                    $item['product_id'],    
+                    $item['quantity'],      
+                    'purchase',             
+                    $purchaseId,            
+                    'purchases',            
+                    $user->id               
                 );
             }
 
-            // 3. NEW: Financial Posting to General Ledger
+            // 3. Financial Posting to General Ledger
             $purchase = Purchase::find($purchaseId);
             self::recordFinancialEntry($purchase);
 
@@ -78,6 +93,7 @@ class PurchaseService
                 [
                     'warehouse_id' => $data['warehouse_id'],
                     'total'        => $data['total'],
+                    'batches_created' => count($data['items'])
                 ]
             );
 
@@ -100,7 +116,7 @@ class PurchaseService
                 'debit' => $purchase->total,
                 'credit' => 0
             ],
-            // CREDIT Accounts Payable (Liability increases - you owe the supplier)
+            // CREDIT Accounts Payable (Liability increases)
             [
                 'account_code' => $ledgerService->getCode($businessId, 'Accounts Payable'),
                 'debit' => 0,
