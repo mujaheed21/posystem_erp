@@ -4,9 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class ExpenseCategory extends Model
 {
+    use HasFactory; // <--- ADD THIS LINE HERE
+
     protected $fillable = [
         'business_id',
         'name',
@@ -15,17 +19,5 @@ class ExpenseCategory extends Model
         'description'
     ];
 
-    /**
-     * The Ledger Account associated with this category.
-     * Every expense under this category will post to this account.
-     */
-    public function ledgerAccount(): BelongsTo
-    {
-        return $this->belongsTo(Account::class, 'ledger_account_id');
-    }
-
-    public function business(): BelongsTo
-    {
-        return $this->belongsTo(Business::class);
-    }
+    // ... (rest of your methods)
 }
