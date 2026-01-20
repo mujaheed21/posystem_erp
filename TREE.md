@@ -60,6 +60,7 @@
 │       ├── SaleService.php
 │       ├── StockAdjustmentService.php
 │       ├── StockAlertService.php
+│       ├── StockExpenseService.php
 │       ├── StockService.php
 │       ├── StockTransferService.php
 │       ├── SupervisorOverrideAuthService.php
@@ -93,8 +94,12 @@
 ├── database
 │   ├── database.sqlite
 │   ├── factories
+│   │   ├── AccountFactory.php
 │   │   ├── BusinessFactory.php
 │   │   ├── BusinessLocationFactory.php
+│   │   ├── CashRegisterFactory.php
+│   │   ├── ExpenseCategoryFactory.php
+│   │   ├── ExpenseFactory.php
 │   │   ├── OfflineFulfillmentPendingFactory.php
 │   │   ├── ProductFactory.php
 │   │   ├── SaleFactory.php
@@ -156,7 +161,10 @@
 │   │   ├── 2026_01_19_181938_create_stock_adjustment_items_table.php
 │   │   ├── 2026_01_19_191024_create_stock_thresholds_table.php
 │   │   ├── 2026_01_19_193226_create_supplier_payments_table.php
-│   │   └── 2026_01_19_193237_add_payment_status_to_purchases.php
+│   │   ├── 2026_01_19_193237_add_payment_status_to_purchases.php
+│   │   ├── 2026_01_20_095941_add_cash_register_id_to_sales_table.php
+│   │   ├── 2026_01_20_102512_add_audit_columns_to_expenses_table.php
+│   │   └── 2026_01_20_103454_add_approved_at_to_expenses_table.php
 │   ├── schema
 │   │   └── mysql-schema.sql
 │   └── seeders
@@ -229,6 +237,7 @@
 │   ├── CreatesApplication.php
 │   ├── Feature
 │   │   ├── Api
+│   │   │   ├── CashReconciliationTest.php
 │   │   │   ├── CashRegisterReconciliationTest.php
 │   │   │   ├── InventoryValuationTest.php
 │   │   │   ├── NetProfitTest.php
@@ -1360,4 +1369,4 @@
 │           └── src
 └── vite.config.js
 
-457 directories, 905 files
+457 directories, 914 files

@@ -24,9 +24,7 @@ This document is *not* a rulebook.
 
 ## 2. System Identity
 
-This system is not a conventional POS.
-
-It is a **high-integrity trading and financial control platform** designed for environments where:
+This system is not a conventional POS. It is a **high-integrity trading and financial control platform** designed for environments where:
 
 * Trust is limited
 * Volume is high
@@ -46,9 +44,7 @@ The system’s core mission is to **close the trust gap** between:
 
 ### 3.1 Integrity Over Convenience
 
-The system intentionally rejects shortcuts.
-
-Any operation that cannot be:
+The system intentionally rejects shortcuts. Any operation that cannot be:
 
 * Attributed to a human
 * Scoped to a location and warehouse
@@ -57,8 +53,7 @@ Any operation that cannot be:
 
 **must fail**, even if this slows down operations.
 
-Correctness is prioritized over speed.
-Traceability is prioritized over comfort.
+Correctness is prioritized over speed. Traceability is prioritized over comfort.
 
 ---
 
@@ -84,13 +79,13 @@ The system treats **state** as the only source of persisted truth.
 * Backward transitions are forbidden
 * Partial execution is treated as failure
 
-Transport-level `status` values exist only for communication and must never represent business truth.
+Transport-level status values exist only for communication and must never represent business truth.
 
 ---
 
 ## 4. Operational Environment: Kano Market Reality
 
-The system is designed around real constraints of large-scale Nigerian trading environments, especially Kano:
+The system is designed around real constraints of large-scale Nigerian trading environments, especially Kano.
 
 ### 4.1 Asynchronous Commerce
 
@@ -111,9 +106,7 @@ The system formalizes this reality using a **Reservation → Fulfillment → Rec
 
 ### 4.2 Offline-First Reality
 
-Connectivity is unreliable.
-
-The system assumes:
+Connectivity is unreliable. The system assumes:
 
 * Local network outages
 * Power instability
@@ -134,10 +127,7 @@ Offline actions are never final. They are **pending, reviewable, and reversible*
 
 ### 4.3 Credit-Driven Trade
 
-Debt is normal, not exceptional.
-
-Suppliers extend credit.
-Customers buy on account.
+Debt is normal, not exceptional. Suppliers extend credit. Customers buy on account.
 
 The system treats:
 
@@ -162,9 +152,7 @@ A bag of goods in a warehouse is simultaneously:
 
 ### 5.1 FIFO Inventory Engine
 
-Stock is **never generic**.
-
-Every quantity belongs to a specific batch derived from a purchase event.
+Stock is **never generic**. Every quantity belongs to a specific batch derived from a purchase event.
 
 Key principles:
 
@@ -200,9 +188,7 @@ Every economically meaningful event produces **balanced financial entries**.
 
 ### 6.1 Fundamental Principle
 
-> Debits must always equal Credits.
-
-If they do not, the system refuses to commit the operation.
+> Debits must always equal Credits. If they do not, the system refuses to commit the operation.
 
 ---
 
@@ -379,3 +365,76 @@ For every unit of stock moved and every unit of currency exchanged, the system g
 * Accountability
 
 Anything less is considered system failure.
+
+---
+
+## 13. Core System Philosophy
+
+* **Zero-Trust Financials:** Every movement of cash must be linked to a specific user, location, and cash register.
+* **Source of Truth:** Expected balances are calculated dynamically from transaction tables rather than relying on manually updated totals.
+* **Offline-First Readiness:** Architecture supports local record creation (like Offline QRs) with eventual synchronization to the central ERP.
+
+---
+
+## 14. Target 6: Cash Management & Expense Engine (VERIFIED)
+
+The system now enforces a strict audit trail for all cash entering and leaving the physical locations.
+
+### A. Cash Register Lifecycle
+
+* **Opening:** Requires an `opening_amount` to establish the baseline.
+
+* **Dynamic Reconciliation:** The "Expected Cash" in any register is calculated using the formula:
+
+  Expected = Opening + Σ(Completed Sales) − Σ(Approved Expenses)
+
+* **Closure & Variance:** Upon closing, the cashier enters the `actual_amount`. The system calculates the variance and flags the register as **balanced**, **shortage**, or **overage**.
+
+---
+
+### B. Expense Audit Workflow
+
+* **Attribution:** Every expense record captures the `user_id` of the initiator.
+* **Approval Logic:**
+
+  * **Auto-Approved:** Expenses ≤ 5,000 NGN are instantly authorized.
+  * **Pending Review:** Expenses > 5,000 NGN require a manager's authorization.
+* **Verification Columns:** `status`, `approved_by`, and `approved_at` ensure no untraceable cash leaves the system.
+
+---
+
+## 15. Technical Architecture
+
+### Key Services
+
+* **CashRegisterService:** Manages register lifecycles and performs dynamic summation of sales and expenses.
+* **StockExpenseService:** Handles creation of cash-out entries, auto-approval logic, and audit logging.
+* **AuditService:** Provides a secondary, immutable log of financial events.
+
+---
+
+### Data Integrity Layer
+
+* **Schema:** Verified MySQL structure using `DECIMAL(15,2)` for financial precision.
+* **Testing:** 100% pass rate on `CashReconciliationTest` and `CashRegisterReconciliationTest`.
+* **Factories:** All models (`Expense`, `Sale`, `CashRegister`, `Account`) include Eloquent factories for automated testing and seeding.
+
+---
+
+## 16. Account Mapping (Target 4 Infrastructure)
+
+The `accounts` table supports a standard Chart of Accounts (COA):
+
+* **Asset:** Cash at Hand, Bank
+* **Liability:** Accounts Payable
+* **Equity:** Owner's Capital
+* **Revenue:** Product Sales
+* **Expense:** Security, Transport, Rent
+
+---
+
+## 17. Current Progress & Next Steps
+
+* **Completed:** Target 6 (Cash & Expenses)
+* **In Progress:** Target 4 (General Ledger Automation)
+* **Upcoming:** Target 7 (Inventory Valuation / COGS) and Target 8 (Offline Sync Hardening)
