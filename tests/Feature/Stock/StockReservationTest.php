@@ -15,7 +15,6 @@ use App\Models\Account; // Added
 class StockReservationTest extends TestCase
 {
     use RefreshDatabase;
-
     /**
      * Helper to seed accounts required by the LedgerService during Sale creation.
      */

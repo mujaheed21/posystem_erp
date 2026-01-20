@@ -17,7 +17,6 @@ use PHPUnit\Framework\Attributes\Test;
 class SalesReturnLedgerTest extends TestCase
 {
     use RefreshDatabase;
-
     protected function seedLedgerAccounts(int $businessId)
     {
         $accounts = [

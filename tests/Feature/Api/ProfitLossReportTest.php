@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\DB;
 class ProfitLossReportTest extends TestCase
 {
     use RefreshDatabase;
-
     /** @test */
    public function it_calculates_correct_profit_and_loss_via_api()
     {

@@ -15,7 +15,6 @@ use Tests\TestCase;
 class StockTransferTest extends TestCase
 {
     use RefreshDatabase;
-
     /**
      * Test the full FIFO lifecycle: 
      * Dispatching from Warehouse A -> In-Transit -> Receiving at Warehouse B.

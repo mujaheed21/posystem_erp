@@ -24,6 +24,7 @@ class CashReconciliationTest extends TestCase
      */
     public function test_register_reconciliation_accounts_for_sales_and_expenses()
     {
+       \Illuminate\Support\Facades\Bus::fake();
         // 1. Setup: Create business hierarchy
         $business = Business::factory()->create();
         $location = BusinessLocation::factory()->create(['business_id' => $business->id]);

@@ -13,7 +13,6 @@ use Tests\TestCase;
 class SupplierPaymentTest extends TestCase
 {
     use RefreshDatabase;
-
     public function test_supplier_payment_updates_purchase_status()
     {
         // 1. Setup Environment

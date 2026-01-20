@@ -14,7 +14,6 @@ use Tests\TestCase;
 class InventoryValuationTest extends TestCase
 {
     use RefreshDatabase;
-
     public function test_multi_location_and_in_transit_valuation()
     {
         // 1. Setup Environment

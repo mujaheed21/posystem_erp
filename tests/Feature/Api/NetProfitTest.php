@@ -18,7 +18,6 @@ use Tests\TestCase;
 class NetProfitTest extends TestCase
 {
     use RefreshDatabase;
-
     /**
      * This test verifies the complete financial journey:
      * 1. Stock is purchased (Inventory Asset).

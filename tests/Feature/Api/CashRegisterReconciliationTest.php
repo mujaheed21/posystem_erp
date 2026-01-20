@@ -16,7 +16,6 @@ use Tests\TestCase;
 class CashRegisterReconciliationTest extends TestCase
 {
     use RefreshDatabase;
-
     public function test_it_reconciles_perfectly_balanced_register()
     {
         $business = Business::factory()->create();

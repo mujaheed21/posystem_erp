@@ -19,7 +19,6 @@ use App\Services\FulfillmentStateMachine;
 class StockCommitTest extends TestCase
 {
     use RefreshDatabase;
-
     /** @test */
     public function stock_is_deducted_only_on_fulfillment_release()
     {

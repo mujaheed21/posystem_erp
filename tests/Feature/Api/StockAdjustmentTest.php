@@ -15,7 +15,6 @@ use Tests\TestCase;
 class StockAdjustmentTest extends TestCase
 {
     use RefreshDatabase;
-
     public function test_fifo_stock_adjustment_logic()
     {
         // 1. Setup Environment

@@ -14,7 +14,6 @@ use Tests\TestCase;
 class StockAlertTest extends TestCase
 {
     use RefreshDatabase;
-
     public function test_low_stock_alert_triggers_correctly()
     {
         // 1. Setup

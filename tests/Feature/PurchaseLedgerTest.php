@@ -16,7 +16,6 @@ use Tests\TestCase;
 class PurchaseLedgerTest extends TestCase
 {
     use RefreshDatabase;
-
     /**
      * Set up the required Chart of Accounts for the business.
      */
