@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Account;
 use App\Models\Business;
 use App\Models\BusinessLocation;
 use App\Models\CashRegister;
@@ -24,15 +25,34 @@ class CashReconciliationTest extends TestCase
      */
     public function test_register_reconciliation_accounts_for_sales_and_expenses()
     {
-       \Illuminate\Support\Facades\Bus::fake();
+        \Illuminate\Support\Facades\Bus::fake();
+
         // 1. Setup: Create business hierarchy
         $business = Business::factory()->create();
         $location = BusinessLocation::factory()->create(['business_id' => $business->id]);
         $warehouse = Warehouse::factory()->create(['business_id' => $business->id]);
         $user = User::factory()->create(['business_id' => $business->id]);
 
+        // 🟢 TARGET 4 SETUP: Create the required Ledger Accounts
+        // Your LedgerService looks for 'Cash at Hand' to credit the cash-out.
+        Account::create([
+            'business_id' => $business->id,
+            'name' => 'Cash at Hand',
+            'code' => '1001',
+            'type' => 'asset',
+            'is_system_account' => true,
+        ]);
+
+        // Create an account for the expense to hit
+        $expenseAccount = Account::create([
+            'business_id' => $business->id,
+            'name' => 'General Expenses',
+            'code' => '5001',
+            'type' => 'expense',
+            'is_system_account' => false,
+        ]);
+
         // Create a register with 10,000 NGN opening balance
-        // Matches your DB column 'opening_amount'
         $register = CashRegister::create([
             'business_id' => $business->id,
             'business_location_id' => $location->id,
@@ -42,7 +62,6 @@ class CashReconciliationTest extends TestCase
         ]);
 
         // 2. Action: Simulate a Cash Sale of 5,000 NGN
-        // We explicitly link 'cash_register_id' so the Service can find it
         Sale::factory()->create([
             'business_id' => $business->id,
             'business_location_id' => $location->id,
@@ -55,11 +74,15 @@ class CashReconciliationTest extends TestCase
         ]);
 
         // 3. Action: Record an Approved Expense (Cash-Out) of 2,000 NGN
-        // We act as the user so Auth::id() works in StockExpenseService
         $this->actingAs($user);
 
-        $category = ExpenseCategory::factory()->create(['business_id' => $business->id]);
-        $expenseService = new StockExpenseService();
+        $category = ExpenseCategory::factory()->create([
+            'business_id' => $business->id,
+            'ledger_account_id' => $expenseAccount->id // Link category to the ledger account
+        ]);
+        
+        // Use app() to inject LedgerService automatically
+        $expenseService = app(StockExpenseService::class);
         
         $expenseService->recordCashOut([
             'business_id' => $business->id,
@@ -71,7 +94,7 @@ class CashReconciliationTest extends TestCase
         ]);
 
         // 4. Verification: Check Expected Balance
-        $registerService = new CashRegisterService();
+        $registerService = app(CashRegisterService::class);
         $summary = $registerService->getRegisterSummary($register);
 
         // Verification of the "Expected" math
@@ -80,7 +103,6 @@ class CashReconciliationTest extends TestCase
         $this->assertEquals(2000, $summary['total_expenses'], "Total expenses sum failed.");
 
         // 5. Final Step: Close with Actual Cash of 12,950 NGN (50 NGN shortage)
-        // This triggers the variance logic
         $results = $registerService->close($register->id, 12950, 'Small shortage due to lack of change');
 
         $this->assertEquals(-50, $results['variance'], "Variance calculation is incorrect.");

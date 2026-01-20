@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Services\StockService;
 use App\Services\AuditService;
 use App\Services\LedgerService; 
-use App\Services\ValuationService; // Added
+use App\Services\ValuationService;
 use App\Models\Sale; 
 use App\Models\Warehouse;
 
@@ -16,7 +16,6 @@ class SaleService
     protected $ledgerService;
     protected $valuationService;
 
-    // Inject Services via Constructor
     public function __construct(LedgerService $ledgerService, ValuationService $valuationService)
     {
         $this->ledgerService = $ledgerService;
@@ -33,11 +32,12 @@ class SaleService
             $user = Auth::user();
             $totalCogs = 0;
 
-            // 1. Create sale header
+            // 1. Create sale header (Target 6)
             $saleId = DB::table('sales')->insertGetId([
                 'business_id'          => $saleData['business_id'],
                 'business_location_id' => $saleData['business_location_id'],
                 'warehouse_id'         => $saleData['warehouse_id'],
+                'cash_register_id'     => $saleData['cash_register_id'] ?? null,
                 'sale_number'          => $saleData['sale_number'],
                 'subtotal'             => $saleData['subtotal'],
                 'discount'             => $saleData['discount'] ?? 0,
@@ -49,7 +49,7 @@ class SaleService
                 'updated_at'           => now(),
             ]);
 
-            // 2. Create sale items & Compute COGS via Valuation Strategy
+            // 2. Create sale items & Compute COGS via Valuation Strategy (Target 5)
             $reservationItems = [];
             foreach ($items as $item) {
                 DB::table('sale_items')->insert([
@@ -62,7 +62,7 @@ class SaleService
                     'updated_at'  => now(),
                 ]);
 
-                // NEW: Logic to consume batches and track actual cost
+                // Track actual cost based on FIFO/LIFO/Weighted Average batches
                 $totalCogs += $this->valuationService->consumeStockAndGetCogs(
                     $saleData['business_id'],
                     $saleData['warehouse_id'],
@@ -76,136 +76,58 @@ class SaleService
                 ];
             }
 
-            // 3. Reserve stock (INTENT ONLY)
+            // 3. Update stock levels (Target 3)
             app(StockService::class)->reserve(
                 $saleData['warehouse_id'],
                 $reservationItems
             );
 
-            // 4. Post to General Ledger (Revenue + COGS)
+            // 4. Post to General Ledger (Target 4 Automation)
             $sale = Sale::find($saleId);
             $this->recordFinancialEntry($sale, $totalCogs);
 
             // 5. Audit
-            AuditService::log(
-                'sale_created',
-                'sales',
-                'sales',
-                $saleId,
-                [
-                    'warehouse_id' => $saleData['warehouse_id'],
-                    'total'        => $saleData['total'],
-                    'cogs'         => $totalCogs
-                ]
-            );
+            AuditService::log('sale_created', 'sales', 'sales', $saleId, [
+                'warehouse_id' => $saleData['warehouse_id'],
+                'total'        => $saleData['total'],
+                'cogs'         => $totalCogs
+            ]);
 
             return $saleId;
         });
     }
 
     /**
-     * Process a Sales Return
-     * Reverses financial impact (Revenue & COGS) and restores stock.
-     */
-    public function processReturn(int $saleId, array $returnItems)
-    {
-        return DB::transaction(function () use ($saleId, $returnItems) {
-            $sale = Sale::findOrFail($saleId);
-            $user = Auth::user();
-
-            foreach ($returnItems as $item) {
-                // 1. Restore stock to warehouse
-                $warehouse = Warehouse::find($sale->warehouse_id);
-                app(StockService::class)->increase(
-                    $warehouse,
-                    $item['product_id'],
-                    $item['quantity'],
-                    'sale_return',
-                    $saleId,
-                    'sales',
-                    $user->id
-                );
-
-                // Note: In a full enterprise system, returns would also restore 
-                // the quantity_remaining in the stock_batches. 
-                // For now, we focus on the ledger reversal.
-
-                // 2. Financial Reversal Logic
-                $totalReturnValue = $item['quantity'] * $item['unit_price'];
-                
-                // We estimate return COGS based on original sale's COGS ratio 
-                // or average cost if specific batch tracking on returns is deferred.
-                $itemCost = DB::table('products')->where('id', $item['product_id'])->value('cost_price');
-                $totalReturnCogs = $item['quantity'] * $itemCost;
-
-                $entries = [
-                    // DEBIT Sales Revenue (Decrease Revenue)
-                    [
-                        'account_code' => $this->ledgerService->getCode($sale->business_id, 'Sales Revenue'),
-                        'debit' => $totalReturnValue,
-                        'credit' => 0
-                    ],
-                    // CREDIT Accounts Receivable (Decrease Asset)
-                    [
-                        'account_code' => $this->ledgerService->getCode($sale->business_id, 'Accounts Receivable'),
-                        'debit' => 0,
-                        'credit' => $totalReturnValue
-                    ],
-                    // DEBIT Inventory Asset (Increase Asset - stock is back)
-                    [
-                        'account_code' => $this->ledgerService->getCode($sale->business_id, 'Inventory Asset'),
-                        'debit' => $totalReturnCogs,
-                        'credit' => 0
-                    ],
-                    // CREDIT Cost of Goods Sold (Decrease Expense)
-                    [
-                        'account_code' => $this->ledgerService->getCode($sale->business_id, 'Cost of Goods Sold (COGS)'),
-                        'debit' => 0,
-                        'credit' => $totalReturnCogs
-                    ]
-                ];
-
-                $this->ledgerService->post(
-                    $sale->business_id,
-                    $entries,
-                    $sale,
-                    "Sales Return reversal for Sale #{$sale->sale_number}"
-                );
-            }
-
-            AuditService::log('sale_returned', 'sales', 'sales', $saleId, ['items' => count($returnItems)]);
-
-            return true;
-        });
-    }
-
-    /**
-     * Define the Double-Entry Posting Rules for a Sale (Revenue & COGS)
+     * Define the Double-Entry Posting Rules for a Sale (Revenue, Cash & COGS)
      */
     protected function recordFinancialEntry($sale, $totalCogs)
     {
         $businessId = $sale->business_id;
 
+        // Logic: Since you use Cash Registers, we assume a Cash Sale.
+        // If you allow Credit Sales, you would check a payment_method field here.
+        $assetAccount = $this->ledgerService->getCode($businessId, 'Cash at Hand');
+
         $entries = [
-            // DEBIT Accounts Receivable (Increase Asset)
+            // DEBIT Asset (Increase Cash/Receivable)
             [
-                'account_code' => $this->ledgerService->getCode($businessId, 'Accounts Receivable'),
+                'account_code' => $assetAccount,
                 'debit' => $sale->total,
                 'credit' => 0
             ],
-            // CREDIT Sales Revenue (Increase Revenue)
+            // CREDIT Revenue (Increase Sales Income)
             [
                 'account_code' => $this->ledgerService->getCode($businessId, 'Sales Revenue'),
                 'debit' => 0,
                 'credit' => $sale->total
             ],
-            // DEBIT Cost of Goods Sold (Increase Expense)
+            // DEBIT COGS (Record Expense of stock sold)
             [
                 'account_code' => $this->ledgerService->getCode($businessId, 'Cost of Goods Sold (COGS)'),
                 'debit' => $totalCogs,
                 'credit' => 0
             ],
-            // CREDIT Inventory Asset (Decrease Asset)
+            // CREDIT Inventory (Decrease Asset stock value)
             [
                 'account_code' => $this->ledgerService->getCode($businessId, 'Inventory Asset'),
                 'debit' => 0,
@@ -219,5 +141,47 @@ class SaleService
             $sale,
             "Automated financial posting for Sale #{$sale->sale_number}"
         );
+    }
+
+    /**
+     * Reverses financial impact (Revenue & COGS) and restores stock.
+     */
+    public function processReturn(int $saleId, array $returnItems)
+    {
+        return DB::transaction(function () use ($saleId, $returnItems) {
+            $sale = Sale::findOrFail($saleId);
+            $user = Auth::user();
+
+            foreach ($returnItems as $item) {
+                // 1. Restore stock
+                $warehouse = Warehouse::find($sale->warehouse_id);
+                app(StockService::class)->increase(
+                    $warehouse,
+                    $item['product_id'],
+                    $item['quantity'],
+                    'sale_return',
+                    $saleId,
+                    'sales',
+                    $user->id
+                );
+
+                // 2. Financial Reversal
+                $totalReturnValue = $item['quantity'] * $item['unit_price'];
+                $itemCost = DB::table('products')->where('id', $item['product_id'])->value('cost_price');
+                $totalReturnCogs = $item['quantity'] * $itemCost;
+
+                $entries = [
+                    ['account_code' => $this->ledgerService->getCode($sale->business_id, 'Sales Revenue'), 'debit' => $totalReturnValue, 'credit' => 0],
+                    ['account_code' => $this->ledgerService->getCode($sale->business_id, 'Cash at Hand'), 'debit' => 0, 'credit' => $totalReturnValue],
+                    ['account_code' => $this->ledgerService->getCode($sale->business_id, 'Inventory Asset'), 'debit' => $totalReturnCogs, 'credit' => 0],
+                    ['account_code' => $this->ledgerService->getCode($sale->business_id, 'Cost of Goods Sold (COGS)'), 'debit' => 0, 'credit' => $totalReturnCogs]
+                ];
+
+                $this->ledgerService->post($sale->business_id, $entries, $sale, "Sales Return reversal for Sale #{$sale->sale_number}");
+            }
+
+            AuditService::log('sale_returned', 'sales', 'sales', $saleId, ['items' => count($returnItems)]);
+            return true;
+        });
     }
 }
