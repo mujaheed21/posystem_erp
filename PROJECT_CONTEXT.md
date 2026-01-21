@@ -1,4 +1,6 @@
-# PROJECT CONTEXT
+# PROJECT_CONTEXT.md
+
+**Updated: 2026-01-20**
 
 ## Secure Multi-Location POS, Warehouse Fulfillment & Double-Entry Accounting System
 
@@ -8,7 +10,7 @@
 
 ## 1. Purpose of This Document
 
-This document defines the **strategic intent, operational philosophy, environmental assumptions, and evolution boundaries** of the system.
+This document defines the **strategic intent, operational philosophy, environmental assumptions, current progress, and evolution boundaries** of the system.
 
 It exists to explain:
 
@@ -16,27 +18,32 @@ It exists to explain:
 * **What problems it is explicitly designed to solve**
 * **How future development must remain aligned with core integrity goals**
 
-This document is *not* a rulebook.
+This document is **not a rulebook**.
 
-> All non-negotiable rules, invariants, lifecycle constraints, and enforcement logic are defined in `CONTINUITY_MAP.md`. Where any ambiguity or conflict exists, the Continuity Map **always overrides** this document.
+> All non-negotiable rules, invariants, lifecycle constraints, and enforcement logic are defined in `CONTINUITY_MAP.md`.
+> Where conflict exists, the **Continuity Map always overrides this document**.
 
 ---
 
 ## 2. System Identity
 
-This system is not a conventional POS. It is a **high-integrity trading and financial control platform** designed for environments where:
+This is not a conventional POS.
+
+It is a **high-integrity trading, inventory, and financial control platform** designed for environments where:
 
 * Trust is limited
-* Volume is high
-* Credit is common
+* Transaction volume is high
+* Credit is normal
 * Connectivity is unreliable
 * Inventory leakage is existential
 
-The system’s core mission is to **close the trust gap** between:
+Its mission is to **close the trust gap** between:
 
 * Physical stock
 * Financial truth
 * Human operations
+
+The system behaves like a **financial guardian**, not a retail app.
 
 ---
 
@@ -44,7 +51,7 @@ The system’s core mission is to **close the trust gap** between:
 
 ### 3.1 Integrity Over Convenience
 
-The system intentionally rejects shortcuts. Any operation that cannot be:
+Any operation that cannot be:
 
 * Attributed to a human
 * Scoped to a location and warehouse
@@ -53,7 +60,8 @@ The system intentionally rejects shortcuts. Any operation that cannot be:
 
 **must fail**, even if this slows down operations.
 
-Correctness is prioritized over speed. Traceability is prioritized over comfort.
+Correctness > Speed
+Traceability > Comfort
 
 ---
 
@@ -67,83 +75,71 @@ Authority is exercised:
 * Under explicit permissions
 * With irreversible actions logged
 
-No user action is considered safe simply because of seniority, habit, or convenience.
+No action is safe by seniority, habit, or convenience.
 
 ---
 
 ### 3.3 State Is Truth
 
-The system treats **state** as the only source of persisted truth.
-
-* State transitions are controlled
-* Backward transitions are forbidden
+* Persisted **state** is the only business truth
+* State transitions are controlled and forward-only
 * Partial execution is treated as failure
 
-Transport-level status values exist only for communication and must never represent business truth.
+Transport-level `status` values exist **only for communication**, never for truth.
 
 ---
 
 ## 4. Operational Environment: Kano Market Reality
 
-The system is designed around real constraints of large-scale Nigerian trading environments, especially Kano.
-
 ### 4.1 Asynchronous Commerce
 
-Sales frequently occur at:
+Sales occur at stalls, shops, and front desks.
+Fulfillment occurs at warehouses and depots.
 
-* Stalls
-* Shops
-* Front desks
+The system formalizes this using:
 
-While fulfillment occurs at:
+**Reservation → Fulfillment → Reconciliation**
 
-* Main warehouses
-* Remote depots
-
-The system formalizes this reality using a **Reservation → Fulfillment → Reconciliation** lifecycle instead of pretending that sales and stock movement are simultaneous.
+Sales capture **money and reservation**, not stock movement.
 
 ---
 
 ### 4.2 Offline-First Reality
 
-Connectivity is unreliable. The system assumes:
+Connectivity and power are unreliable.
 
-* Local network outages
-* Power instability
-* Temporary device isolation
+Offline fulfillment is therefore **first-class**, not a fallback.
 
-Offline fulfillment is therefore a **first-class feature**, not a fallback hack.
-
-Cryptographically signed QR codes provide:
+Cryptographically signed QR tokens provide:
 
 * Authenticity
 * Replay protection
 * Expiry enforcement
 * Warehouse binding
 
-Offline actions are never final. They are **pending, reviewable, and reversible** until reconciliation.
+Offline actions are **pending and reviewable** until reconciliation.
 
 ---
 
 ### 4.3 Credit-Driven Trade
 
-Debt is normal, not exceptional. Suppliers extend credit. Customers buy on account.
+Debt is normal.
 
 The system treats:
 
-* Payables
-* Receivables
+* Accounts Receivable
+* Accounts Payable
 * Outstanding balances
 
-as first-class entities that must be tracked with the same rigor as physical stock.
+as first-class financial entities with full ledger rigor.
 
 ---
 
 ## 5. Inventory as a Financial Asset
 
-The system treats inventory and money as two representations of the same underlying value.
+Inventory and money are two representations of the same value.
 
-A bag of goods in a warehouse is simultaneously:
+A bag of goods is simultaneously:
 
 * Physical stock
 * A financial asset
@@ -152,15 +148,12 @@ A bag of goods in a warehouse is simultaneously:
 
 ### 5.1 FIFO Inventory Engine
 
-Stock is **never generic**. Every quantity belongs to a specific batch derived from a purchase event.
-
-Key principles:
-
+* Stock is batch-specific
 * FIFO costing is mandatory
-* Oldest stock is always relieved first
-* Stock valuation is always explainable
+* Oldest stock is relieved first
+* COGS is always explainable
 
-The system can provide snapshots of:
+The system can report:
 
 * Capital locked in stock
 * Stock by warehouse
@@ -170,7 +163,7 @@ The system can provide snapshots of:
 
 ### 5.2 Stock as a Ledger, Not a Counter
 
-Stock is not updated by incrementing numbers.
+Stock is **never incremented or decremented silently**.
 
 Every movement is:
 
@@ -178,33 +171,32 @@ Every movement is:
 * Idempotent
 * Auditable
 
-Silent stock mutation is forbidden.
+Silent mutation is forbidden.
 
 ---
 
 ## 6. Double-Entry Financial Ledger
 
-Every economically meaningful event produces **balanced financial entries**.
-
 ### 6.1 Fundamental Principle
 
-> Debits must always equal Credits. If they do not, the system refuses to commit the operation.
+> **Debits must always equal Credits.**
+> If they do not, the operation is rejected.
 
 ---
 
 ### 6.2 Canonical Events
 
-**Purchase Event**
+**Purchase**
 
 * Debit: Inventory Asset
 * Credit: Accounts Payable
 
-**Payment Event**
+**Payment**
 
 * Debit: Accounts Payable
 * Credit: Cash / Bank
 
-**Sale Event**
+**Sale**
 
 * Debit: Accounts Receivable or Cash
 * Credit: Revenue
@@ -216,31 +208,21 @@ Every economically meaningful event produces **balanced financial entries**.
 
 ---
 
-### 6.3 Automated Financial Status
+### 6.3 Derived Financial Status
 
-Payment status is **derived**, never manually set.
+Payment status is **calculated**, never manually set.
 
-The system calculates:
-
-* Unpaid
-* Partial
-* Paid
-
-by comparing ledger totals, not flags.
+Paid / Partial / Unpaid are derived from ledger totals.
 
 ---
 
 ## 7. Fulfillment Architecture
 
-### 7.1 Separation of Sale and Fulfillment
+### 7.1 Sale ≠ Fulfillment
 
 A sale does **not** move stock.
 
-Fulfillment is:
-
-* Explicit
-* Verifiable
-* Authorized
+Fulfillment is explicit, authorized, and verifiable.
 
 This prevents:
 
@@ -252,25 +234,21 @@ This prevents:
 
 ### 7.2 Online Fulfillment
 
-Online fulfillment uses:
-
 * Single-use tokens
 * Row locking
-* Permission checks
+* Permission enforcement
 
-Replay, parallel execution, and token reuse are deterministically rejected.
+Replay and parallel execution are deterministically rejected.
 
 ---
 
 ### 7.3 Offline Fulfillment
 
-Offline fulfillment:
+* Cryptographic verification
+* Pending records only
+* No final stock mutation
 
-* Verifies cryptographic signatures
-* Creates pending records
-* Does not mutate final state
-
-Final stock deduction occurs only during supervised reconciliation.
+Final stock deduction occurs **only during supervised reconciliation**.
 
 ---
 
@@ -278,10 +256,8 @@ Final stock deduction occurs only during supervised reconciliation.
 
 ### 8.1 Propose vs Lock
 
-The system enforces a strict boundary:
-
-* **Services propose outcomes**
-* **State machines and ledger engines lock truth**
+* Services **propose** outcomes
+* State machines and ledger engines **lock truth**
 
 No service may directly mutate irreversible state.
 
@@ -291,9 +267,9 @@ No service may directly mutate irreversible state.
 
 Every record must capture:
 
-* Who performed the action
-* Where it occurred
-* Why it occurred
+* Who
+* Where
+* Why
 
 Anonymous or context-free records are invalid.
 
@@ -301,21 +277,21 @@ Anonymous or context-free records are invalid.
 
 ## 9. Governance Through Testing
 
-Tests are part of the governance model.
+Tests are governance.
 
 Feature tests assert:
 
-* Security invariants
 * Lifecycle correctness
+* Security invariants
 * Audit guarantees
 
-A change that breaks a test is considered a **policy violation**, not a bug.
+A failing test represents a **policy violation**, not a bug.
 
 ---
 
 ## 10. Scope Boundaries
 
-### 10.1 In Scope
+### In Scope
 
 * Multi-warehouse inventory
 * FIFO costing
@@ -325,20 +301,89 @@ A change that breaks a test is considered a **policy violation**, not a bug.
 * Audit logging
 * Supervisor override documentation
 
----
-
-### 10.2 Out of Scope
+### Out of Scope
 
 * Payroll and HR
 * Manufacturing workflows
-* Automatic regulatory filing
+* Automated regulatory filing
 * Fraud adjudication
 
 ---
 
-## 11. Evolution Expectations
+## 11. Current Progress & Verified Targets
 
-The system is expected to evolve in:
+### ✅ Target 3: Multi-Location Stock Tracking
+
+* Warehouse-aware stock
+* Physical vs Reserved separation
+
+### ✅ Target 4: General Ledger Automation
+
+* Balanced debit/credit enforced
+* “No Account, No Entry” policy
+
+### ✅ Target 5: FIFO Inventory Valuation
+
+* Batch-level COGS
+* Real-time gross profit
+
+### ✅ Target 6: Secure Cash Management
+
+* Register lifecycle (Open → Close)
+* Dynamic expected cash
+* Variance locking
+
+---
+
+## 12. Cash & Expense Engine (Target 6 – VERIFIED)
+
+### Cash Register Lifecycle
+
+Expected Cash = Opening + Sales − Expenses
+
+Variance is locked at closure.
+
+### Expense Governance
+
+* ≤ ₦5,000: Auto-approved
+* > ₦5,000: Supervisor approval required
+* Full attribution and audit trail enforced
+
+---
+
+## 13. Technical Architecture Reality
+
+### Core Services
+
+* `LedgerService` — Double-entry enforcement
+* `SaleService` — Transaction orchestration
+* `ValuationService` — FIFO engine
+* `CashRegisterService` — Cash control
+* `StockExpenseService` — Cash-out audit
+
+### Data Integrity
+
+* `DECIMAL(15,2)` everywhere
+* Source-linked ledger entries
+* Feature-test guarded
+
+---
+
+## 14. Account Mapping Infrastructure
+
+Standard COA enforced:
+
+* Assets: Cash, Bank, Inventory
+* Liabilities: Payables
+* Equity: Capital
+* Revenue: Sales
+* Expenses: Transport, Rent, Security
+
+---
+
+## 15. Evolution Expectations
+
+The system may evolve in:
 
 * UI/UX
 * Performance
@@ -348,93 +393,20 @@ The system is expected to evolve in:
 It must **never evolve** toward:
 
 * Implicit trust
-* Weakened audit trails
+* Weakened audits
 * Silent state mutation
 * Convenience over integrity
 
 ---
 
-## 12. Final Statement
+## 16. Final Governance Statement
 
-This system is designed to behave like a **financial guardian**, not a retail app.
+As of **January 20, 2026**, the backend financial, inventory, and fulfillment engines are **verified, versioned, and governed**.
 
-For every unit of stock moved and every unit of currency exchanged, the system guarantees:
+No future UI, API, or integration is permitted to bypass:
 
-* Traceability
-* Balance
-* Accountability
+* State machines
+* Ledger enforcement
+* Audit guarantees
 
-Anything less is considered system failure.
-
----
-
-## 13. Core System Philosophy
-
-* **Zero-Trust Financials:** Every movement of cash must be linked to a specific user, location, and cash register.
-* **Source of Truth:** Expected balances are calculated dynamically from transaction tables rather than relying on manually updated totals.
-* **Offline-First Readiness:** Architecture supports local record creation (like Offline QRs) with eventual synchronization to the central ERP.
-
----
-
-## 14. Target 6: Cash Management & Expense Engine (VERIFIED)
-
-The system now enforces a strict audit trail for all cash entering and leaving the physical locations.
-
-### A. Cash Register Lifecycle
-
-* **Opening:** Requires an `opening_amount` to establish the baseline.
-
-* **Dynamic Reconciliation:** The "Expected Cash" in any register is calculated using the formula:
-
-  Expected = Opening + Σ(Completed Sales) − Σ(Approved Expenses)
-
-* **Closure & Variance:** Upon closing, the cashier enters the `actual_amount`. The system calculates the variance and flags the register as **balanced**, **shortage**, or **overage**.
-
----
-
-### B. Expense Audit Workflow
-
-* **Attribution:** Every expense record captures the `user_id` of the initiator.
-* **Approval Logic:**
-
-  * **Auto-Approved:** Expenses ≤ 5,000 NGN are instantly authorized.
-  * **Pending Review:** Expenses > 5,000 NGN require a manager's authorization.
-* **Verification Columns:** `status`, `approved_by`, and `approved_at` ensure no untraceable cash leaves the system.
-
----
-
-## 15. Technical Architecture
-
-### Key Services
-
-* **CashRegisterService:** Manages register lifecycles and performs dynamic summation of sales and expenses.
-* **StockExpenseService:** Handles creation of cash-out entries, auto-approval logic, and audit logging.
-* **AuditService:** Provides a secondary, immutable log of financial events.
-
----
-
-### Data Integrity Layer
-
-* **Schema:** Verified MySQL structure using `DECIMAL(15,2)` for financial precision.
-* **Testing:** 100% pass rate on `CashReconciliationTest` and `CashRegisterReconciliationTest`.
-* **Factories:** All models (`Expense`, `Sale`, `CashRegister`, `Account`) include Eloquent factories for automated testing and seeding.
-
----
-
-## 16. Account Mapping (Target 4 Infrastructure)
-
-The `accounts` table supports a standard Chart of Accounts (COA):
-
-* **Asset:** Cash at Hand, Bank
-* **Liability:** Accounts Payable
-* **Equity:** Owner's Capital
-* **Revenue:** Product Sales
-* **Expense:** Security, Transport, Rent
-
----
-
-## 17. Current Progress & Next Steps
-
-* **Completed:** Target 6 (Cash & Expenses)
-* **In Progress:** Target 4 (General Ledger Automation)
-* **Upcoming:** Target 7 (Inventory Valuation / COGS) and Target 8 (Offline Sync Hardening)
+Anything less constitutes **system failure**.

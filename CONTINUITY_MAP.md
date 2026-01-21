@@ -1,147 +1,232 @@
-# CONTINUITY_MAP — SYSTEM INVARIANTS & MILESTONES
+# CONTINUITY_MAP.md
 
-This document defines the **non-negotiable rules** that govern the behavior of the system. These rules are enforced by code and protected by automated tests.
+**System Invariants, Lifecycle Rules & Locked Targets**
 
-> [!IMPORTANT]
-> **This document overrides all other documentation**, including `PROJECT_CONTEXT.md`, comments, or developer assumptions. If an implementation violates an invariant defined here, it is considered a critical bug.
+**Status:** FINAL
+**Last Updated:** 2026-01-20
+
+> **Authority Clause**
+> This document defines the **non-negotiable invariants** governing the system.
+> It **overrides all other documentation**, including `PROJECT_CONTEXT.md`, inline comments, developer assumptions, or UI behavior.
+> Any implementation that violates an invariant herein is a **critical system bug**.
 
 ---
 
-## 1. Inventory Lifecycle Invariants
+## LOCKED TARGET STATUS
 
-Inventory handling is governed by a strict, multi-phase lifecycle. These phases **must never be collapsed or reordered**.
+**Targets Locked & Enforced:** 4, 5, 6
+**Verified Through Tests:** Yes
+**Regression Tolerance:** Zero
 
-### 1.1 Reservation Phase (Sale Intent)
+---
 
-* Physical stock quantity (`warehouse_stock.quantity`) MUST NOT change.
+## 1. Financial Ledger Doctrine (Target 4)
+
+The `ledger_entries` table is the **ultimate and sole source of financial truth**.
+
+### 1.1 Balanced Ledger Rule (Double-Entry Invariant)
+
+* No economically meaningful event (Sale, Expense, Return, Adjustment) may persist unless it produces a **balanced ledger posting**.
+* **Invariant:**
+  `SUM(debit) == SUM(credit)` for every unique `source_type + source_id`.
+* **Enforcement:**
+  All postings must be wrapped in a database transaction via `LedgerService`.
+  Any imbalance MUST throw and rollback.
+
+### 1.2 Ledger Immutability
+
+* Ledger entries MUST NOT be updated or deleted.
+* Errors are corrected **only via reversal postings**.
+* This guarantees a permanent, tamper-proof audit trail.
+
+### 1.3 System Account Integrity
+
+* System accounts (Cash at Hand, Sales Revenue, COGS, Inventory Asset, Accounts Receivable, Accounts Payable) MUST be seeded per `business_id`.
+* If `getCode()` is called and the account is missing:
+
+  * The operation MUST fail (`ModelNotFoundException`).
+  * Silent fallback is forbidden.
+
+---
+
+## 2. Inventory Lifecycle Invariants (Target 5)
+
+Inventory follows a **strict, multi-phase lifecycle**.
+Phases MUST NOT be collapsed, skipped, or reordered.
+
+### 2.1 Reservation Phase (Sale Intent)
+
+* `warehouse_stock.quantity` MUST NOT change.
 * Only `warehouse_stock.reserved_quantity` may increase.
-* Reservation MUST be atomic with sale creation.
+* Reservation MUST be atomic with Sale creation.
+* No ledger posting occurs here except financial claim creation.
 
-### 1.2 Commitment Phase (Fulfillment Execution)
+### 2.2 Commitment Phase (Fulfillment Execution)
 
-* Stock MUST be deducted exactly once per fulfillment.
-* Commitment MUST be ledger-driven and idempotent.
-* **FIFO Enforcement:** Stock deduction must target the oldest available `StockBatch` first to maintain valuation accuracy.
+* Physical stock MUST be deducted **exactly once**.
+* Commitment MUST be:
 
-### 1.3 Recovery Phase (Returns/Reversals)
+  * Ledger-driven
+  * Idempotent
+* **FIFO Enforcement:**
+  `ValuationService` MUST relieve stock from the **oldest `stock_batches` first**.
+* Stock decrement without a corresponding **COGS ledger entry is forbidden**.
 
-* Returns MUST restore physical stock (`quantity`) via `StockService`.
-* Returns MUST NOT delete original sale records; they MUST create reversal entries.
-* Returns MUST be ledger-guarded to prevent double-restoration.
+### 2.3 Recovery Phase (Returns & Reversals)
 
----
-
-## 2. Financial Ledger Doctrine
-
-The `ledger_entries` table is the **ultimate source of truth** for the financial state of the business.
-
-### 2.1 Double-Entry Invariant
-
-* Every financial event MUST post at least one Debit and one Credit.
-* **The sum of Debits MUST equal the sum of Credits for every transaction.**
-* Out-of-balance postings MUST be rejected at the database transaction level.
-
-### 2.2 Immutability Invariant
-
-* Financial ledger entries MUST NOT be updated or deleted.
-* Errors in posting MUST be corrected via **Reversal Postings** (New entries that offset the error).
-* This ensures a permanent, tamper-proof audit trail for all Kano market transactions.
+* Returns MUST restore physical stock via `StockService`.
+* Original sale records MUST NOT be deleted.
+* Returns MUST generate reversal ledger entries.
+* Double-restoration is prevented by ledger and audit guards.
 
 ---
 
-## 3. Posting Rules (Domain Invariants)
+## 3. Separation of Duties (Sale vs Fulfillment)
 
-| Event                     | Debit Account       | Credit Account      |
-| :------------------------ | :------------------ | :------------------ |
-| **Sale (On Credit)**      | Accounts Receivable | Sales Revenue       |
-| **Purchase (On Credit)**  | Inventory Asset     | Accounts Payable    |
-| **Payment (to Supplier)** | Accounts Payable    | Cash/Bank Asset     |
-| **Sale Return**           | Sales Revenue       | Accounts Receivable |
+* **Sale**
 
----
+  * Creates financial obligation (Ledger)
+  * Creates stock reservation
+  * Does NOT move physical stock
+* **Fulfillment**
 
-## 4. Fulfillment & Reconciliation Invariants
-
-### 4.1 State Machine Integrity
-
-* **Warehouse Fulfillment**: `pending → approved → released → reconciled`.
-* **Offline Fulfillment**: `pending → approved → reconciled`.
-* Terminal states (`reconciled`, `conflicted`) MUST NOT be reversed.
-
-### 4.2 Offline Reconciliation
-
-* Supervisor override MUST be enforced for cryptographic signature failures (Target 8).
-* Reconciliation MUST be idempotent: Checked against both the `fulfillment_status` and `ledger_entries`.
+  * Moves physical stock
+  * Resolves reservation
+* **Constraint:**
+  No fulfillment may occur without a valid Sale or Transfer record.
 
 ---
 
-## 5. Audit & Traceability
+## 4. Cash Management Invariants (Target 6)
 
-* Every Ledger entry MUST link to a `source_type` and `source_id`.
-* Every Stock movement MUST link to an `audit_logs` entry.
-* System-wide **Hard Separation**: Operations (Services) propose values; the Ledger Engine validates and locks them.
+### 4.1 Open Register Guard
 
----
+* No Sale or Expense may be recorded unless:
 
-## 6. Completed Milestones (Targets 5–12)
+  * `cash_register.status = open`
+  * The register belongs to the acting `user_id`
+* UI and API MUST enforce this before invoking services.
 
-The following core features have been implemented and verified against the above invariants:
+### 4.2 Dynamic Cash Reconciliation
 
-* **FIFO Profit & Loss (Target 5):** Real-time COGS tracking based on batch costs.
-* **Cashier Reconciliation (Target 6):** Shift-based cash accountability.
-* **QR Logistics (Target 7/8):** Cryptographically signed transfers between Warehouse and Stalls.
-* **Inventory Valuation (Target 10):** Total Naira value of stock-at-rest and stock-in-transit.
-* **Supplier Debt Tracking (Target 12):** Partial payment logic and payment status automation.
+* “Expected Cash” MUST NEVER be stored or manually editable.
+* **Hard Formula:**
 
----
+  ```
+  Expected Cash = Opening Balance + Recorded Sales − Approved Expenses
+  ```
+* On register closure:
 
-## 6.1 Target 6 — Cash Register & Expense Engine (Verified Detail)
+  * Variance (`actual − expected`) MUST be posted as a ledger entry.
 
-This target is **fully implemented and enforced as an invariant-compliant subsystem**.
+### 4.3 Expense Governance
 
-* **Status:** ✅ 100% COMPLETE (Verified: 2026-01-20)
-* **Reconciliation Formula (Hard Rule):**
-  `Expected Cash = Opening Balance + Recorded Sales − Approved Expenses`
-* **Expense Governance:**
+* Every expense MUST be linked to:
 
-  * Every expense MUST be linked to:
-
-    * `user_id`
-    * `cash_register_id`
-  * Expenses MUST pass through an approval lifecycle before affecting reconciliation.
-* **Audit Enforcement:**
-
-  * Every expense action is auditable and traceable to an operator.
-  * Rejected or pending expenses MUST NOT influence cash reconciliation.
-* **Test Coverage:**
-
-  * `CashReconciliationTest` — PASS
-  * `CashRegisterReconciliationTest` — PASS
-
-Any deviation from this formula or bypass of approval constitutes a **financial integrity violation**.
+  * `user_id`
+  * `cash_register_id`
+* Expenses MUST pass approval before affecting reconciliation.
+* Pending or rejected expenses MUST NOT influence cash math.
 
 ---
 
-## 7. Idempotency Guarantees
+## 5. Fulfillment & Reconciliation State Machines
 
-| Operation         | Idempotent | Enforcement Mechanism       |
-| :---------------- | :--------- | :-------------------------- |
-| Stock reservation | ❌          | Transaction boundary        |
-| Financial Posting | ✅          | Source-Type/ID unique check |
-| Stock commitment  | ✅          | Ledger uniqueness           |
-| Sales Return      | ✅          | Audit log + Ledger guard    |
+### 5.1 State Integrity
+
+* **Warehouse Fulfillment:**
+  `pending → approved → released → reconciled`
+* **Offline Fulfillment:**
+  `pending → approved → reconciled`
+* Terminal states (`reconciled`, `conflicted`) are **immutable**.
+
+### 5.2 Offline Reconciliation
+
+* Fulfillment tokens MUST be cryptographically signed (Target 7).
+* Signature failures require supervisor override.
+* Reconciliation MUST be idempotent:
+
+  * Guarded by fulfillment state
+  * Guarded by ledger existence
 
 ---
 
-## 8. Enforcement
+## 6. Posting Rules (Domain Invariants)
 
-These invariants are enforced by:
-
-* Database foreign key constraints.
-* Ledger balance validation logic.
-* **Automated Integration Tests:** 32 passing tests verify these behaviors.
+| Event                | Debit Account       | Credit Account      |
+| -------------------- | ------------------- | ------------------- |
+| Sale (Cash)          | Cash at Hand        | Sales Revenue       |
+| Sale (On Credit)     | Accounts Receivable | Sales Revenue       |
+| Purchase (On Credit) | Inventory Asset     | Accounts Payable    |
+| Supplier Payment     | Accounts Payable    | Cash / Bank         |
+| Sale Return          | Sales Revenue       | Accounts Receivable |
 
 ---
 
-**Document Status:** **FINAL**
-**Last Updated:** **2026-01-20**
+## 7. Operational Invariants
+
+### 7.1 Immutability of Finalized States
+
+* Completed Sales are immutable.
+* Closed Cash Registers are immutable.
+* Corrections occur via returns or reversal flows only.
+
+### 7.2 Mandatory Attribution
+
+Every row in:
+
+* `sales`
+* `expenses`
+* `ledger_entries`
+* `audit_logs`
+
+MUST include:
+
+* `user_id` (Who)
+* `business_location_id` (Where)
+* `created_at` (When)
+
+---
+
+## 8. Idempotency Guarantees
+
+| Operation         | Idempotent | Enforcement Mechanism            |
+| ----------------- | ---------- | -------------------------------- |
+| Stock Reservation | ❌          | Transaction boundary             |
+| Financial Posting | ✅          | `source_type + source_id` unique |
+| Stock Commitment  | ✅          | Ledger guard                     |
+| Sales Return      | ✅          | Audit log + Ledger validation    |
+
+---
+
+## 9. Testing as Governance
+
+The following tests are **critical path**.
+Failure equals **system integrity breach**:
+
+1. `LedgerAutomationTest`
+2. `SaleLedgerAutomationTest`
+3. `CashReconciliationTest`
+4. `CashRegisterReconciliationTest`
+5. Offline Fulfillment Reconciliation Tests
+
+**Total Coverage:** 32 integration tests — ALL PASS
+
+---
+
+## 10. Completed Milestones
+
+* FIFO Profit & Loss (Target 5)
+* Cashier Reconciliation (Target 6)
+* Cryptographically Signed QR Logistics (Targets 7/8)
+* Inventory Valuation Engine (Target 10)
+* Supplier Debt & Partial Payments (Target 12)
+
+---
+
+### FINAL DECLARATION
+
+This document represents the **constitutional law** of the system.
+All future features, refactors, and optimizations MUST conform to these invariants.
+
+Any deviation is not a feature gap — it is a defect.
