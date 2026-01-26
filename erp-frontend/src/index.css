@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/**
+ * 1. UI Law Enforcement (@theme)
+ * Based on FRONTEND_FEATURE_MAP.md:
+ * - Primary Color: #1677ff (Corporate Blue)
+ * - Border Radius: 4px (Industrial / Compact)
+ */
+@theme {
+  --color-primary: #1677ff;
+  --radius-erp: 4px;
+  
+  /* Typography: Inter / Roboto as per registry */
+  --font-sans: "Inter", "Roboto", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/**
+ * 2. Base ERP Global Styles
+ */
+@layer base {
+  :root {
+    /* Set a standard light-mode baseline for the ERP dashboard */
+    color-scheme: light;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    /* Neutral background to make Ant Design cards pop */
+    @apply bg-slate-50 text-slate-900;
+  }
+
+  /* Reset default Vite link styles to match Ant Design defaults */
+  a {
+    @apply transition-colors duration-200;
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  a:hover {
+    filter: brightness(1.2);
+  }
+}
+
+/**
+ * 3. Component Overrides
+ * Custom utility layer for project-specific layouts
+ */
+@layer components {
+  .erp-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  .card-shadow {
+    @apply shadow-[0_1px_3px_0_rgba(0,0,0,0.1),0_1px_2px_0_rgba(0,0,0,0.06)];
+  }
+}

@@ -6,43 +6,48 @@ use App\Http\Controllers\Controller;
 use App\Services\ReportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 
 class ReportController extends Controller
 {
     protected $reportService;
 
-    /**
-     * Injecting the ReportService to handle the ledger-based analytics.
-     */
     public function __construct(ReportService $reportService)
     {
         $this->reportService = $reportService;
     }
 
-    /**
-     * Get the Profit & Loss Statement via API
-     * * This endpoint computes Revenue, COGS, and Net Profit directly from the Ledger.
-     * GET /api/v1/reports/profit-loss?start_date=2026-01-01&end_date=2026-01-31
-     */
     public function getProfitLoss(Request $request)
     {
-        $request->validate([
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Session expired. Please log in.'], 401);
+        }
+
+        $request->mergeIfMissing([
+            'start_date' => Carbon::now()->startOfMonth()->toDateString(),
+            'end_date'   => Carbon::now()->toDateString(),
+        ]);
+
+        $validated = $request->validate([
             'start_date'  => 'required|date',
             'end_date'    => 'required|date|after_or_equal:start_date',
             'location_id' => 'nullable|integer'
         ]);
 
-        $businessId = Auth::user()->business_id;
+        // Guard against null business_id
+        $businessId = (int) ($user->business_id ?? 0);
+        if ($businessId === 0) {
+            return response()->json(['message' => 'No business associated with this user.'], 403);
+        }
 
         $report = $this->reportService->getProfitAndLoss(
             $businessId,
-            $request->start_date,
-            $request->end_date,
+            $validated['start_date'],
+            $validated['end_date'],
             $request->location_id
         );
 
-        // We return the 'data' key from the service result directly 
-        // to satisfy the test's expectation of data.revenue, data.cogs, etc.
         return response()->json([
             'status' => 'success',
             'data'   => $report['data'],
@@ -50,12 +55,17 @@ class ReportController extends Controller
         ]);
     }
 
-    /**
-     * Get Top Selling Products with Margin Analysis
-     */
     public function getTopProducts(Request $request)
     {
-        $request->validate([
+        $user = Auth::user();
+        if (!$user) return response()->json(['message' => 'Unauthenticated'], 401);
+
+        $request->mergeIfMissing([
+            'start_date' => Carbon::now()->startOfMonth()->toDateString(),
+            'end_date'   => Carbon::now()->toDateString(),
+        ]);
+
+        $validated = $request->validate([
             'start_date' => 'required|date',
             'end_date'   => 'required|date|after_or_equal:start_date',
             'limit'      => 'nullable|integer|max:50',
@@ -63,16 +73,13 @@ class ReportController extends Controller
         ]);
 
         $report = $this->reportService->getTopProducts(
-            Auth::user()->business_id,
-            $request->start_date,
-            $request->end_date,
+            (int) $user->business_id,
+            $validated['start_date'],
+            $validated['end_date'],
             $request->location_id,
             $request->get('limit', 10)
         );
 
-        return response()->json([
-            'status' => 'success',
-            'data'   => $report
-        ]);
+        return response()->json(['status' => 'success', 'data' => $report]);
     }
 }

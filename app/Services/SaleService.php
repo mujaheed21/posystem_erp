@@ -24,32 +24,40 @@ class SaleService
 
     /**
      * Create a sale, consume stock batches, and post to ledger atomically.
+     * Fixed: Added default data mapping to prevent "Undefined Index" errors.
      */
-    public function create(array $saleData, array $items)
+    public function create(array $saleData, array $items = [])
     {
-        return DB::transaction(function () use ($saleData, $items) {
+        // If items are nested in $saleData (from Controller), extract them automatically
+        if (empty($items) && isset($saleData['items'])) {
+            $items = $saleData['items'];
+        }
 
+        return DB::transaction(function () use ($saleData, $items) {
             $user = Auth::user();
+            $businessId = $saleData['business_id'] ?? $user->business_id;
+            $locationId = $saleData['business_location_id'] ?? $user->business_location_id;
+            
             $totalCogs = 0;
 
-            // 1. Create sale header (Target 6)
+            // 1. Create sale header
             $saleId = DB::table('sales')->insertGetId([
-                'business_id'          => $saleData['business_id'],
-                'business_location_id' => $saleData['business_location_id'],
+                'business_id'          => $businessId,
+                'business_location_id' => $locationId,
                 'warehouse_id'         => $saleData['warehouse_id'],
                 'cash_register_id'     => $saleData['cash_register_id'] ?? null,
-                'sale_number'          => $saleData['sale_number'],
+                'sale_number'          => $saleData['sale_number'] ?? 'SL-' . strtoupper(uniqid()),
                 'subtotal'             => $saleData['subtotal'],
                 'discount'             => $saleData['discount'] ?? 0,
                 'tax'                  => $saleData['tax'] ?? 0,
                 'total'                => $saleData['total'],
                 'status'               => 'completed', 
-                'created_by'           => $saleData['created_by'] ?? $user->id,
+                'created_by'           => $user->id,
                 'created_at'           => now(),
                 'updated_at'           => now(),
             ]);
 
-            // 2. Create sale items & Compute COGS via Valuation Strategy (Target 5)
+            // 2. Create sale items & Compute COGS
             $reservationItems = [];
             foreach ($items as $item) {
                 DB::table('sale_items')->insert([
@@ -57,14 +65,14 @@ class SaleService
                     'product_id'  => $item['product_id'],
                     'quantity'    => $item['quantity'],
                     'unit_price'  => $item['unit_price'],
-                    'total_price' => $item['quantity'] * $item['unit_price'],
+                    'total_price' => $item['total_price'] ?? ($item['quantity'] * $item['unit_price']),
                     'created_at'  => now(),
                     'updated_at'  => now(),
                 ]);
 
-                // Track actual cost based on FIFO/LIFO/Weighted Average batches
+                // Valuation Logic (FIFO/LIFO)
                 $totalCogs += $this->valuationService->consumeStockAndGetCogs(
-                    $saleData['business_id'],
+                    $businessId,
                     $saleData['warehouse_id'],
                     $item['product_id'],
                     $item['quantity']
@@ -82,7 +90,7 @@ class SaleService
                 $reservationItems
             );
 
-            // 4. Post to General Ledger (Target 4 Automation)
+            // 4. Post to General Ledger
             $sale = Sale::find($saleId);
             $this->recordFinancialEntry($sale, $totalCogs);
 
@@ -98,36 +106,32 @@ class SaleService
     }
 
     /**
-     * Define the Double-Entry Posting Rules for a Sale (Revenue, Cash & COGS)
+     * Define the Double-Entry Posting Rules
      */
     protected function recordFinancialEntry($sale, $totalCogs)
     {
         $businessId = $sale->business_id;
 
-        // Logic: Since you use Cash Registers, we assume a Cash Sale.
-        // If you allow Credit Sales, you would check a payment_method field here.
-        $assetAccount = $this->ledgerService->getCode($businessId, 'Cash at Hand');
-
         $entries = [
-            // DEBIT Asset (Increase Cash/Receivable)
+            // DEBIT Asset (Cash)
             [
-                'account_code' => $assetAccount,
+                'account_code' => $this->ledgerService->getCode($businessId, 'Cash at Hand'),
                 'debit' => $sale->total,
                 'credit' => 0
             ],
-            // CREDIT Revenue (Increase Sales Income)
+            // CREDIT Revenue
             [
                 'account_code' => $this->ledgerService->getCode($businessId, 'Sales Revenue'),
                 'debit' => 0,
                 'credit' => $sale->total
             ],
-            // DEBIT COGS (Record Expense of stock sold)
+            // DEBIT COGS
             [
                 'account_code' => $this->ledgerService->getCode($businessId, 'Cost of Goods Sold (COGS)'),
                 'debit' => $totalCogs,
                 'credit' => 0
             ],
-            // CREDIT Inventory (Decrease Asset stock value)
+            // CREDIT Inventory
             [
                 'account_code' => $this->ledgerService->getCode($businessId, 'Inventory Asset'),
                 'debit' => 0,
@@ -143,9 +147,6 @@ class SaleService
         );
     }
 
-    /**
-     * Reverses financial impact (Revenue & COGS) and restores stock.
-     */
     public function processReturn(int $saleId, array $returnItems)
     {
         return DB::transaction(function () use ($saleId, $returnItems) {
@@ -153,7 +154,6 @@ class SaleService
             $user = Auth::user();
 
             foreach ($returnItems as $item) {
-                // 1. Restore stock
                 $warehouse = Warehouse::find($sale->warehouse_id);
                 app(StockService::class)->increase(
                     $warehouse,
@@ -165,9 +165,8 @@ class SaleService
                     $user->id
                 );
 
-                // 2. Financial Reversal
                 $totalReturnValue = $item['quantity'] * $item['unit_price'];
-                $itemCost = DB::table('products')->where('id', $item['product_id'])->value('cost_price');
+                $itemCost = DB::table('products')->where('id', $item['product_id'])->value('cost_price') ?? 0;
                 $totalReturnCogs = $item['quantity'] * $itemCost;
 
                 $entries = [

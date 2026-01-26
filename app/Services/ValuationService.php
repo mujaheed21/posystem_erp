@@ -5,20 +5,21 @@ namespace App\Services;
 use Illuminate\Support\Facades\DB;
 use App\Models\Business;
 use App\Models\Product;
+use Illuminate\Support\Collection;
 
 class ValuationService
 {
     /**
-     * TARGET 10: Get the financial value of stock per location.
+     * Get the financial value of stock per location.
      */
-    public function getLocationValuation(int $businessId)
+    public function getLocationValuation(int $businessId): Collection
     {
         return DB::table('stock_batches')
             ->join('warehouses', 'stock_batches.warehouse_id', '=', 'warehouses.id')
             ->select(
                 'warehouses.id as warehouse_id',
                 'warehouses.name as location_name',
-                DB::raw('SUM(quantity_remaining * unit_cost) as total_value'),
+                DB::raw('COALESCE(SUM(quantity_remaining * unit_cost), 0) as total_value'),
                 DB::raw('COUNT(DISTINCT product_id) as unique_products_count')
             )
             ->where('stock_batches.business_id', $businessId)
@@ -28,17 +29,22 @@ class ValuationService
     }
 
     /**
-     * TARGET 10: Get the value of stock currently "on the road" (In-Transit).
+     * Get the value of stock currently "on the road" (In-Transit).
+     * Updated to return the array structure expected by the Controller and Tests.
      */
-    public function getInTransitValuation(int $businessId)
+    public function getInTransitValuation(int $businessId): array
     {
-        return DB::table('stock_transfer_items')
+        $result = DB::table('stock_transfer_items')
             ->join('stock_transfers', 'stock_transfer_items.stock_transfer_id', '=', 'stock_transfers.id')
             ->join('stock_batches', 'stock_transfer_items.stock_batch_id', '=', 'stock_batches.id')
             ->where('stock_transfers.business_id', $businessId)
             ->where('stock_transfers.status', 'in_transit')
-            ->select(DB::raw('SUM(stock_transfer_items.quantity * stock_batches.unit_cost) as transit_value'))
+            ->select(DB::raw('COALESCE(SUM(stock_transfer_items.quantity * stock_batches.unit_cost), 0) as transit_value'))
             ->first();
+
+        return [
+            'transit_value' => (float) ($result->transit_value ?? 0)
+        ];
     }
 
     /**
@@ -47,7 +53,7 @@ class ValuationService
     public function consumeStockAndGetCogs(int $businessId, int $warehouseId, int $productId, float $qtyToConsume): float
     {
         $business = Business::find($businessId);
-        $method = $business->valuation_method ?? 'fifo'; // Default to FIFO
+        $method = $business->valuation_method ?? 'fifo';
 
         if ($method === 'fifo') {
             return $this->processFifo($warehouseId, $productId, $qtyToConsume);
@@ -58,7 +64,6 @@ class ValuationService
 
     /**
      * FIFO: First-In, First-Out
-     * Deducts quantity from the oldest batches first.
      */
     protected function processFifo(int $warehouseId, int $productId, float $qtyToConsume): float
     {
@@ -67,7 +72,7 @@ class ValuationService
             ->where('product_id', $productId)
             ->where('quantity_remaining', '>', 0)
             ->orderBy('received_at', 'asc')
-            ->lockForUpdate() // Prevent race conditions
+            ->lockForUpdate()
             ->get();
 
         $totalCogs = 0;
@@ -79,7 +84,6 @@ class ValuationService
             $take = min($batch->quantity_remaining, $remainingToProcess);
             $totalCogs += ($take * $batch->unit_cost);
 
-            // Update the batch
             DB::table('stock_batches')
                 ->where('id', $batch->id)
                 ->update([
@@ -92,7 +96,7 @@ class ValuationService
 
         if ($remainingToProcess > 0) {
             $lastCost = DB::table('products')->where('id', $productId)->value('cost_price');
-            $totalCogs += ($remainingToProcess * $lastCost);
+            $totalCogs += ($remainingToProcess * ($lastCost ?? 0));
         }
 
         return $totalCogs;

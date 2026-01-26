@@ -47,4 +47,16 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    /**
+     * Overrides the default guard name for Spatie Laravel Permission.
+     * This allows the model to check permissions against both the 
+     * 'sanctum' API guard and the 'web' session guard.
+     *
+     * @return string|array
+     */
+    public function guardName()
+    {
+        return ['sanctum', 'web'];
+    }
 }

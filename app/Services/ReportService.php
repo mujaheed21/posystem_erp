@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\DB;
 
 class ReportService
 {
+    /**
+     * Get Profit and Loss statement data.
+     */
     public function getProfitAndLoss(int $businessId, string $startDate, string $endDate)
     {
         // 1. Fetch Net Revenue
@@ -23,33 +26,41 @@ class ReportService
         $margin = $revenue > 0 ? ($netProfit / $revenue) * 100 : 0;
 
         return [
-    'data' => [
-        'revenue'        => (float) $revenue,      // Force float cast
-        'cogs'           => (float) $cogs,         // Force float cast
-        'gross_profit'   => (float) $grossProfit,  // Force float cast
-        'total_expenses' => (float) $totalExpenses,// Force float cast
-        'net_profit'     => (float) $netProfit,    // Force float cast
-        'profit_margin'  => round($margin, 2) . '%'
-    ]
-];
+            'data' => [
+                'total_sales'    => (float) $revenue,     // Aligned with React stats.sales
+                'cogs'           => (float) $cogs,
+                'gross_profit'   => (float) $grossProfit,
+                'total_expenses' => (float) $totalExpenses,
+                'net_profit'     => (float) $netProfit,   // Aligned with React stats.profit
+                'profit_margin'  => round($margin, 2) . '%'
+            ]
+        ];
     }
 
+    /**
+     * Calculate balance for a specific account name.
+     */
     protected function getAccountBalance($businessId, $accountName, $start, $end, $side)
     {
         $totals = DB::table('ledger_entries')
             ->join('accounts', 'ledger_entries.account_id', '=', 'accounts.id')
             ->where('accounts.business_id', $businessId)
             ->where('accounts.name', $accountName)
-            ->whereBetween('posted_at', [$start . ' 00:00:00', $end . ' 23:59:59'])
+            // Changed from posted_at to created_at to match your database records
+            ->whereBetween('ledger_entries.created_at', [$start . ' 00:00:00', $end . ' 23:59:59'])
             ->selectRaw('SUM(debit) as total_debit, SUM(credit) as total_credit')
             ->first();
 
         $debit = $totals->total_debit ?? 0;
         $credit = $totals->total_credit ?? 0;
 
+        // Revenue/Credit accounts: Credit - Debit. Expense/Debit accounts: Debit - Credit.
         return ($side === 'credit') ? ($credit - $debit) : ($debit - $credit);
     }
 
+    /**
+     * Calculate aggregate balance for an account category (e.g., all expenses).
+     */
     protected function getCategoryBalance($businessId, $type, $start, $end)
     {
         $totals = DB::table('ledger_entries')
@@ -57,7 +68,7 @@ class ReportService
             ->where('accounts.business_id', $businessId)
             ->where('accounts.type', $type)
             ->where('accounts.name', '!=', 'Cost of Goods Sold (COGS)') 
-            ->whereBetween('posted_at', [$start . ' 00:00:00', $end . ' 23:59:59'])
+            ->whereBetween('ledger_entries.created_at', [$start . ' 00:00:00', $end . ' 23:59:59'])
             ->selectRaw('SUM(debit) as total_debit, SUM(credit) as total_credit')
             ->first();
 

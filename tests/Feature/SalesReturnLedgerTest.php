@@ -2,78 +2,79 @@
 
 namespace Tests\Feature;
 
-use App\Models\Account;
 use App\Models\Business;
 use App\Models\Product;
 use App\Models\User;
 use App\Models\Warehouse;
-use App\Models\Sale;
+use App\Models\BusinessLocation;
 use App\Services\SaleService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
+use Tests\Helpers\SeedsLedger;
 use PHPUnit\Framework\Attributes\Test;
 
 class SalesReturnLedgerTest extends TestCase
 {
-    use RefreshDatabase;
-    protected function seedLedgerAccounts(int $businessId)
-    {
-        $accounts = [
-            ['name' => 'Inventory Asset', 'code' => '1002', 'type' => 'asset'],
-            ['name' => 'Accounts Receivable', 'code' => '1001', 'type' => 'asset'],
-            ['name' => 'Sales Revenue', 'code' => '4001', 'type' => 'revenue'],
-            // MISSING ACCOUNT ADDED HERE:
-            ['name' => 'Cost of Goods Sold (COGS)', 'code' => '5001', 'type' => 'expense'],
-        ];
-
-        foreach ($accounts as $account) {
-            Account::create(array_merge($account, [
-                'business_id' => $businessId,
-                'is_system_account' => 1
-            ]));
-        }
-    }
+    use RefreshDatabase, SeedsLedger;
 
     #[Test]
     public function a_sale_return_reverses_financial_and_stock_impact()
     {
+        // --- 1. SETUP ENVIRONMENT ---
         $business = Business::factory()->create();
         $user = User::factory()->create(['business_id' => $business->id]);
         $warehouse = Warehouse::factory()->create(['business_id' => $business->id]);
         $product = Product::factory()->create(['business_id' => $business->id]);
-        
-        $locationId = DB::table('business_locations')->insertGetId([
-            'business_id' => $business->id,
-            'name' => 'Main Shop',
-        ]);
+        $location = BusinessLocation::factory()->create(['business_id' => $business->id]);
 
         $this->actingAs($user);
 
-        // Unified Helpers
-        $this->setupBusinessLedger($business->id);
+        // --- 2. SEED MANDATORY LEDGER ---
+        $this->seedLedgerForBusiness($business);
+        
+        // Initialize Stock: 50 units @ 500.00 cost
         $this->initializeProductStock($business->id, $warehouse->id, $product->id, $user->id, 50, 500.00);
 
         $saleService = app(SaleService::class);
+
+        // --- 3. EXECUTE INITIAL SALE ---
         $saleId = $saleService->create([
             'business_id' => $business->id,
-            'business_location_id' => $locationId,
+            'business_location_id' => $location->id,
             'warehouse_id' => $warehouse->id,
             'sale_number' => 'SALE-REV-001',
             'subtotal' => 1000,
             'total' => 1000,
+            'status' => 'final',
+            'created_by' => $user->id,
         ], [
             ['product_id' => $product->id, 'quantity' => 1, 'unit_price' => 1000]
         ]);
 
+        // --- 4. EXECUTE RETURN ---
         $saleService->processReturn($saleId, [
-            ['product_id' => $product->id, 'quantity' => 1, 'unit_price' => 1000]
+            [
+                'product_id' => $product->id, 
+                'quantity' => 1, 
+                'unit_price' => 1000,
+                'restock' => true 
+            ]
         ]);
 
+        // --- 5. VERIFY INTEGRITY ---
+        // Verify physical stock increment
         $this->assertDatabaseHas('warehouse_stock', [
             'warehouse_id' => $warehouse->id,
             'product_id'   => $product->id,
-            'quantity'     => 51
+            'quantity'     => 51.000 
+        ]);
+
+        // Verify ledger reversal
+        $this->assertDatabaseHas('ledger_entries', [
+            'business_id' => $business->id,
+            'source_type' => 'App\\Models\\Sale',
+            'user_id'     => $user->id,
+            'source_id'   => $saleId,
         ]);
     }
 }

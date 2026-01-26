@@ -20,9 +20,22 @@ class StockBatch extends Model
         'received_at'
     ];
 
+    /**
+     * The attributes that should be cast.
+     * Use decimal casts to prevent floating-point math errors in COGS.
+     */
     protected $casts = [
-        'received_at' => 'timestamp',
-        'quantity_remaining' => 'float',
-        'unit_cost' => 'float',
+        'received_at' => 'datetime',
+        'quantity_received' => 'decimal:3',
+        'quantity_remaining' => 'decimal:3',
+        'unit_cost' => 'decimal:2',
     ];
+
+    /**
+     * Invariant: A batch is exhausted when quantity_remaining is 0.
+     */
+    public function isExhausted(): bool
+    {
+        return $this->quantity_remaining <= 0;
+    }
 }

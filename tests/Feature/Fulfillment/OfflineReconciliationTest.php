@@ -10,19 +10,23 @@ use App\Models\SupervisorOverride;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Tests\Helpers\FulfillmentTestHelper;
+use Tests\Helpers\SeedsLedger;
 use App\Services\OfflineFulfillmentStateMachine;
 
 class OfflineReconciliationTest extends TestCase
 {
-    use RefreshDatabase;
-    use FulfillmentTestHelper;
+    use RefreshDatabase, FulfillmentTestHelper, SeedsLedger;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        Permission::findOrCreate('offline.fulfillment.approve');
-        Permission::findOrCreate('warehouse.fulfill');
+        /** * FIX: We create permissions for the 'sanctum' guard.
+         * This ensures the API requests (which use the sanctum guard) 
+         * can find the permissions in the database.
+         */
+        Permission::findOrCreate('offline.fulfillment.approve', 'sanctum');
+        Permission::findOrCreate('warehouse.fulfill', 'sanctum');
     }
 
     /** @test */
@@ -34,7 +38,7 @@ class OfflineReconciliationTest extends TestCase
         $pending = $this->createOfflinePending();
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/approve"
+            "/api/v1/offline-fulfillments/{$pending->id}/approve"
         )->assertForbidden();
     }
 
@@ -42,14 +46,15 @@ class OfflineReconciliationTest extends TestCase
     public function offline_pending_cannot_be_reconciled_without_approval()
     {
         $supervisor = User::factory()->create();
-        $supervisor->givePermissionTo('offline.fulfillment.approve');
+        // Explicitly assign the permission using the sanctum guard
+        $supervisor->givePermissionTo(Permission::findByName('offline.fulfillment.approve', 'sanctum'));
 
         Sanctum::actingAs($supervisor);
 
         $pending = $this->createOfflinePending();
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/reconcile"
+            "/api/v1/offline-fulfillments/{$pending->id}/reconcile"
         )->assertStatus(422);
     }
 
@@ -57,19 +62,19 @@ class OfflineReconciliationTest extends TestCase
     public function rejected_offline_pending_cannot_be_reconciled()
     {
         $supervisor = User::factory()->create();
-        $supervisor->givePermissionTo('offline.fulfillment.approve');
+        $supervisor->givePermissionTo(Permission::findByName('offline.fulfillment.approve', 'sanctum'));
 
         Sanctum::actingAs($supervisor);
 
         $pending = $this->createOfflinePending();
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/reject",
+            "/api/v1/offline-fulfillments/{$pending->id}/reject",
             ['reason' => 'Invalid payload']
         );
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/reconcile"
+            "/api/v1/offline-fulfillments/{$pending->id}/reconcile"
         )->assertStatus(422);
     }
 
@@ -77,19 +82,22 @@ class OfflineReconciliationTest extends TestCase
     public function approved_offline_pending_can_be_reconciled()
     {
         $supervisor = User::factory()->create();
-        $supervisor->givePermissionTo('offline.fulfillment.approve');
-        $supervisor->givePermissionTo('warehouse.fulfill');
+        $supervisor->givePermissionTo(Permission::findByName('offline.fulfillment.approve', 'sanctum'));
+        $supervisor->givePermissionTo(Permission::findByName('warehouse.fulfill', 'sanctum'));
 
         Sanctum::actingAs($supervisor);
+
+        $business = \App\Models\Business::factory()->create();
+        $this->seedLedgerForBusiness($business);
 
         [$pending, $product, $warehouse] = $this->createOfflinePendingWithStock();
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/approve"
+            "/api/v1/offline-fulfillments/{$pending->id}/approve"
         )->assertOk();
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/reconcile"
+            "/api/v1/offline-fulfillments/{$pending->id}/reconcile"
         )->assertOk();
 
         $this->assertDatabaseHas('warehouse_stock', [
@@ -103,18 +111,18 @@ class OfflineReconciliationTest extends TestCase
     public function reconciliation_cannot_happen_twice()
     {
         $supervisor = User::factory()->create();
-        $supervisor->givePermissionTo('offline.fulfillment.approve');
-        $supervisor->givePermissionTo('warehouse.fulfill');
+        $supervisor->givePermissionTo(Permission::findByName('offline.fulfillment.approve', 'sanctum'));
+        $supervisor->givePermissionTo(Permission::findByName('warehouse.fulfill', 'sanctum'));
 
         Sanctum::actingAs($supervisor);
 
         [$pending] = $this->createOfflinePendingWithStock();
 
-        $this->postJson("/api/offline-fulfillments/{$pending->id}/approve");
-        $this->postJson("/api/offline-fulfillments/{$pending->id}/reconcile");
+        $this->postJson("/api/v1/offline-fulfillments/{$pending->id}/approve");
+        $this->postJson("/api/v1/offline-fulfillments/{$pending->id}/reconcile");
 
         $this->postJson(
-            "/api/offline-fulfillments/{$pending->id}/reconcile"
+            "/api/v1/offline-fulfillments/{$pending->id}/reconcile"
         )->assertStatus(422);
     }
 
@@ -122,15 +130,15 @@ class OfflineReconciliationTest extends TestCase
     public function reconciliation_writes_audit_log()
     {
         $supervisor = User::factory()->create();
-        $supervisor->givePermissionTo('offline.fulfillment.approve');
-        $supervisor->givePermissionTo('warehouse.fulfill');
+        $supervisor->givePermissionTo(Permission::findByName('offline.fulfillment.approve', 'sanctum'));
+        $supervisor->givePermissionTo(Permission::findByName('warehouse.fulfill', 'sanctum'));
 
         Sanctum::actingAs($supervisor);
 
         [$pending] = $this->createOfflinePendingWithStock();
 
-        $this->postJson("/api/offline-fulfillments/{$pending->id}/approve");
-        $this->postJson("/api/offline-fulfillments/{$pending->id}/reconcile");
+        $this->postJson("/api/v1/offline-fulfillments/{$pending->id}/approve");
+        $this->postJson("/api/v1/offline-fulfillments/{$pending->id}/reconcile");
 
         $this->assertDatabaseHas('audit_logs', [
             'action'  => 'offline_fulfillment_reconciled',

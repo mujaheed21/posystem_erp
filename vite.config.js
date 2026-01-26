@@ -1,18 +1,14 @@
 import { defineConfig } from 'vite';
-import laravel from 'laravel-vite-plugin';
+import react from '@vitejs/react-swc'; // or @vitejs/plugin-react
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
     plugins: [
-        laravel({
-            input: ['resources/css/app.css', 'resources/js/app.js'],
-            refresh: true,
-        }),
+        react(),
         tailwindcss(),
     ],
     server: {
-        watch: {
-            ignored: ['**/storage/framework/views/**'],
-        },
+        port: 3000,
+        // No proxy here! We want Axios to handle the port 8000 routing directly.
     },
 });
